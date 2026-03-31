@@ -65,6 +65,8 @@ RUN npm install -g openclaw@latest
 # 작업 디렉터리 생성
 RUN mkdir -p /root/.openclaw/workspace /workspace
 
+EXPOSE 18789
+
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

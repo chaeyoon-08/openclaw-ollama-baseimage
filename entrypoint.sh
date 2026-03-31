@@ -126,7 +126,7 @@ jq -n \
         gateway: {
             mode: "local",
             port: 18789,
-            bind: "loopback",
+            bind: "lan",
             auth: { mode: "token", token: $token }
         },
         models: {

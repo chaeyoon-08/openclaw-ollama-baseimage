@@ -141,7 +141,11 @@ ghcr.io/chaeyoon-08/openclaw-ollama-baseimage:latest
 
 **4단계 — 포트 설정**
 
-Telegram long-polling 방식이라 외부 포트 노출 불필요. 포트 설정 없이 배포.
+| 컨테이너 포트 | 용도 |
+|---|---|
+| `18789` | OpenClaw Control UI 및 gateway |
+
+gcube 워크로드 등록 시 포트 `18789` 를 Service URL로 노출하도록 설정.
 
 **5단계 — 저장소 연결** (선택)
 
@@ -157,6 +161,12 @@ Storage Management에서 Dropbox 또는 AWS S3 연결 후 워크로드에 마운
   Ollama model  : qwen3:14b
   Gateway token : <자동생성토큰>
 ```
+
+**Control UI 접근:**
+```
+http://<gcube-service-url>/__openclaw__/
+```
+접속 후 로그에 출력된 `Gateway token` 값을 입력하면 OpenClaw 관리 화면으로 진입.
 
 로그 출력 후 Telegram에서 봇에게 메시지 보내면 바로 응답.
 

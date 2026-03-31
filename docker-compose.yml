@@ -11,6 +11,8 @@ services:
     image: ghcr.io/${GITHUB_REPOSITORY:-your-username/openclaw-base}:latest
     # 로컬 빌드 테스트 시:
     # build: .
+    ports:
+      - "18789:18789"
     environment:
       # 필수
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
