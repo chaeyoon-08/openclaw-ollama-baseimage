@@ -76,12 +76,16 @@ fi
 
 # ── 2-1. openclaw workspace 자동 복원 ───────────────────────────────────────
 # /workspace/.openclaw_copy 가 있으면 → /root/.openclaw/workspace 로 복원
-# backup.sh로 백업 후 git push 해둔 내용을 컨테이너 재시작 시 자동으로 불러옴
+# backup.sh로 백업 후 git push 해둔 내용을 컨테이너 재시작 시 git clone과 함께 복원됨
+# /workspace/.openclaw_copy 가 없으면 → 빈 디렉터리 생성 (첫 시작 시)
 if [ -d "/workspace/.openclaw_copy" ]; then
     log_doing "Restoring openclaw workspace from .openclaw_copy"
     mkdir -p /root/.openclaw/workspace
     cp -r /workspace/.openclaw_copy/. /root/.openclaw/workspace/
     log_ok "Workspace restored from /workspace/.openclaw_copy"
+else
+    mkdir -p /workspace/.openclaw_copy
+    log_info "Created empty /workspace/.openclaw_copy"
 fi
 
 # ── 3. Ollama 서비스 시작 ────────────────────────────────────────────────────
@@ -212,6 +216,7 @@ sleep 3
 # restore.sh : /workspace/.openclaw_copy → openclaw workspace 복원
 mkdir -p /workspace
 
+if [ ! -f /workspace/backup.sh ]; then
 cat > /workspace/backup.sh << 'SCRIPT'
 #!/bin/bash
 # backup.sh — openclaw workspace를 /workspace/.openclaw_copy 로 백업
@@ -236,7 +241,11 @@ echo "  git add .openclaw_copy"
 echo "  git commit -m 'backup: openclaw workspace'"
 echo "  git push"
 SCRIPT
+chmod +x /workspace/backup.sh
+log_ok "Created /workspace/backup.sh"
+fi
 
+if [ ! -f /workspace/restore.sh ]; then
 cat > /workspace/restore.sh << 'SCRIPT'
 #!/bin/bash
 # restore.sh — /workspace/.openclaw_copy 를 openclaw workspace 로 복원
@@ -264,9 +273,9 @@ echo "  pkill -f openclaw-gateway"
 echo ""
 echo "  (잠시 후 자동으로 재시작됩니다)"
 SCRIPT
-
-chmod +x /workspace/backup.sh /workspace/restore.sh
-log_ok "Scripts ready: /workspace/backup.sh  /workspace/restore.sh"
+chmod +x /workspace/restore.sh
+log_ok "Created /workspace/restore.sh"
+fi
 
 log_done "All services started"
 echo ""
