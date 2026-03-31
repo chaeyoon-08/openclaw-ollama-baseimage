@@ -186,7 +186,7 @@ http://<gcube-service-url>/__openclaw__/
 
 ### 복원 (컨테이너 재시작 후)
 
-- **자동**: 시작 시 `/workspace/.openclaw_copy` 가 있으면 자동 복원
+- **자동**: 시작 시 git repo 재클론 → `.openclaw_copy`가 포함되어 있으면 자동 복원 (사전에 `backup.sh` + `git push` 필요)
 - **수동**: 자동 복원이 안 된 경우
 
 ```bash

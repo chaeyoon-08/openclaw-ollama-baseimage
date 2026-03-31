@@ -16,7 +16,7 @@
 - **GitHub 연동**: 지정 repo를 `/workspace`에 자동 클론, git 인증 자동 구성
 - **workspace 백업/복원** *(테스트 필요)*:
   - `backup.sh` 실행 → `/root/.openclaw/workspace` 내용을 `/workspace/.openclaw_copy`로 복사 후 git push로 보존
-  - 컨테이너 재시작 시 `.openclaw_copy` 존재하면 자동 복원
+  - 컨테이너 재시작 시 git repo 재클론 → `.openclaw_copy`가 포함되어 있으면 자동 복원
   - `restore.sh` 실행 → 수동 복원 후 openclaw gateway 재시작 명령어 안내
 - **gateway 자동 재시작** *(테스트 필요)*: `pkill -f openclaw-gateway` 실행 후 3초 이내 자동 재기동 (컨테이너 종료 없음)
 
