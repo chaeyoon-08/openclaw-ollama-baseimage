@@ -1,0 +1,131 @@
+# openclaw-base
+
+OpenClaw + Ollama 기반 Telegram AI 비서 컨테이너 이미지.
+gcube 워크로드에 배포하여 환경변수만 설정하면 즉시 사용 가능.
+
+---
+
+## 이미지 사양
+
+| 항목 | 내용 |
+|---|---|
+| 베이스 | `nvidia/cuda:12.8.1-runtime-ubuntu22.04` |
+| CUDA | 12.8.1 (Pascal ~ Blackwell 전 GPU 지원) |
+| 최소 호스트 드라이버 | `>= 570.124.06` |
+| OS | Ubuntu 22.04 LTS |
+| Node.js | 24 |
+| OpenClaw | latest |
+| Ollama | latest |
+
+### 사전 설치 도구
+
+`git` `curl` `wget` `nano` `vim` `python3` `pip` `npm` `jq` `build-essential`
+
+---
+
+## 구성
+
+```
+컨테이너 내부
+├── Ollama (127.0.0.1:11434)       ← 로컬 LLM 추론 서버
+└── OpenClaw gateway (127.0.0.1:18789)
+        ↕ Telegram Bot API (long-polling)
+        Telegram 사용자
+```
+
+- API 비용 없음 — 외부 AI API 사용하지 않고 Ollama 로컬 모델만 사용
+- gcube 클라우드 저장소는 `/data/data` 경로로 자동 마운트됨
+
+---
+
+## 환경변수
+
+### 필수
+
+| 변수 | 예시 | 설명 |
+|---|---|---|
+| `TELEGRAM_BOT_TOKEN` | `123456:ABC-DEF...` | [@BotFather](https://t.me/BotFather) 에서 발급 |
+| `TELEGRAM_ALLOWED_USER_IDS` | `123456789` 또는 `123456789,987654321` | 봇을 사용할 Telegram 수치형 User ID (쉼표로 여러 명 가능) |
+| `OLLAMA_MODEL` | `qwen3:14b` | 사용할 Ollama 모델. **반드시 태그 포함** (예: `:14b`, `:8b`) |
+
+> **OLLAMA_MODEL 주의**: 태그 없이 모델명만 지정하면 `:latest` 로 시도합니다.
+> `:latest` 태그가 없는 모델은 다운로드 오류가 발생합니다. 항상 명시적 태그를 사용하세요.
+>
+> 사용 가능한 태그 확인: https://ollama.com/library
+
+### 선택
+
+GitHub 관련 변수는 모두 선택사항. `GITHUB_USERNAME`과 `GITHUB_EMAIL`이 없으면 GitHub 설정 전체가 스킵됨.
+
+| 변수 | 예시 | 설명 |
+|---|---|---|
+| `GITHUB_USERNAME` | `your-username` | git config user.name |
+| `GITHUB_EMAIL` | `you@example.com` | git config user.email |
+| `GITHUB_TOKEN` | `ghp_...` | GitHub Personal Access Token (git push 인증) |
+| `GITHUB_REPO_URL` | `https://github.com/you/repo` | 컨테이너 시작 시 `/workspace` 에 클론할 repo URL |
+
+---
+
+## Telegram User ID 확인 방법
+
+봇을 처음 사용하기 전에 본인의 Telegram 수치형 User ID가 필요합니다.
+
+1. [@userinfobot](https://t.me/userinfobot) 에 `/start` 전송
+2. 표시된 `Id:` 숫자를 `TELEGRAM_ALLOWED_USER_IDS` 에 입력
+
+---
+
+## gcube 워크로드 배포
+
+1. **이미지 등록**: `ghcr.io/<owner>/openclaw-base:latest`
+2. **GPU 선택**: 원하는 GPU 티어 선택
+3. **최소 CUDA 버전**: `12.8` 입력
+4. **환경변수 설정**: 위 표의 필수 항목 입력
+5. **저장소 연결** (선택): Storage Management에서 Dropbox/S3 연결 후 워크로드에 마운트 → 컨테이너 내 `/data/data` 로 접근
+
+---
+
+## 로컬 테스트
+
+```bash
+# .env 파일 생성
+cat > .env << 'EOF'
+TELEGRAM_BOT_TOKEN=your_bot_token
+TELEGRAM_ALLOWED_USER_IDS=your_telegram_user_id
+OLLAMA_MODEL=qwen3:8b
+EOF
+
+# NVIDIA GPU 있는 경우
+docker compose up
+
+# GPU 없는 경우 (CPU 추론, 속도 느림)
+docker run --env-file .env ghcr.io/<owner>/openclaw-base:latest
+```
+
+### 직접 빌드
+
+```bash
+docker build -t openclaw-base .
+docker run --gpus all --env-file .env openclaw-base
+```
+
+---
+
+## GitHub Actions 자동 빌드
+
+`main` 브랜치에 push 하거나 `v*.*.*` 태그를 달면 자동으로 이미지를 빌드하여 ghcr.io 에 push 합니다.
+
+**생성되는 이미지 태그:**
+- `main` push → `:main`, `:latest`, `:sha-<7자>`
+- `v1.2.3` 태그 → `:1.2.3`, `:1.2`, `:1`, `:latest`, `:sha-<7자>`
+- 수동 실행 (`workflow_dispatch`) → 선택한 브랜치 기준
+
+별도 시크릿 설정 불필요 — `GITHUB_TOKEN` 으로 ghcr.io 인증.
+
+---
+
+## 참고
+
+- OpenClaw 문서: https://docs.openclaw.ai
+- Ollama 모델 목록: https://ollama.com/library
+- gcube 플랫폼 문서: https://data-alliance.github.io/gai-platform-docs/
