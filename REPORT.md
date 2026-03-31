@@ -13,7 +13,7 @@
 - **Telegram 인터페이스**: 지정된 Telegram 사용자 ID만 봇 사용 허용 (allowlist 방식)
 - **로컬 LLM 추론**: Ollama를 통해 gcube GPU에서 직접 모델 추론 — 외부 AI API 미사용
 - **자동 초기 설정**: 컨테이너 시작 시 환경변수만으로 Telegram 연동·모델 다운로드·게이트웨이 설정 자동 완료
-- **GitHub 연동**: 지정 repo를 `/workspace`에 자동 클론, git 인증 자동 구성
+- **GitHub 연동**: `GITHUB_REPO_URL` 설정 시 `/workspace`에 클론, git 인증 자동 구성
 - **workspace 백업/복원** *(테스트 필요)*:
   - `backup.sh` 실행 → `/root/.openclaw/workspace` 내용을 `/workspace/.openclaw_copy`로 복사 후 git push로 보존
   - 컨테이너 재시작 시 git repo 재클론 → `.openclaw_copy`가 포함되어 있으면 자동 복원
