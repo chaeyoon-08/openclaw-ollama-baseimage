@@ -77,11 +77,65 @@ GitHub 관련 변수는 모두 선택사항. `GITHUB_USERNAME`과 `GITHUB_EMAIL`
 
 ## gcube 워크로드 배포
 
-1. **이미지 등록**: `ghcr.io/<owner>/openclaw-base:latest`
-2. **GPU 선택**: 원하는 GPU 티어 선택
-3. **최소 CUDA 버전**: `12.8` 입력
-4. **환경변수 설정**: 위 표의 필수 항목 입력
-5. **저장소 연결** (선택): Storage Management에서 Dropbox/S3 연결 후 워크로드에 마운트 → 컨테이너 내 `/data/data` 로 접근
+### 사전 준비: 이미지 공개 설정
+
+ghcr.io 패키지는 기본적으로 비공개. gcube에서 접근하려면 공개로 변경 필요.
+
+1. GitHub → [Packages](https://github.com/chaeyoon-08?tab=packages) 에서 `openclaw-ollama-baseimage` 선택
+2. Package settings → Change visibility → **Public** 으로 변경
+
+> 비공개로 유지하고 싶다면 gcube Storage Management에서 ghcr.io 인증 정보를 등록해야 함.
+
+---
+
+### 워크로드 등록 단계
+
+**1단계 — 이미지 입력**
+
+```
+ghcr.io/chaeyoon-08/openclaw-ollama-baseimage:latest
+```
+
+**2단계 — 리소스 설정**
+
+| 항목 | 권장값 |
+|---|---|
+| GPU | 1개 이상 |
+| 최소 CUDA 버전 | `12.8` |
+| Shared Memory | `1GB` 이상 |
+
+**3단계 — 환경변수 설정**
+
+| 변수 | 값 |
+|---|---|
+| `TELEGRAM_BOT_TOKEN` | BotFather에서 발급한 토큰 |
+| `TELEGRAM_ALLOWED_USER_IDS` | 본인 Telegram user ID (예: `8374448391`) |
+| `OLLAMA_MODEL` | 사용할 모델 (예: `qwen3:14b`) |
+| `GITHUB_USERNAME` | (선택) GitHub 사용자명 |
+| `GITHUB_EMAIL` | (선택) GitHub 이메일 |
+| `GITHUB_TOKEN` | (선택) GitHub Personal Access Token |
+| `GITHUB_REPO_URL` | (선택) 클론할 repo URL |
+
+**4단계 — 포트 설정**
+
+Telegram long-polling 방식이라 외부 포트 노출 불필요. 포트 설정 없이 배포.
+
+**5단계 — 저장소 연결** (선택)
+
+Storage Management에서 Dropbox 또는 AWS S3 연결 후 워크로드에 마운트.
+컨테이너 내부에서 `/data/data` 경로로 접근 가능.
+
+**6단계 — 배포 확인**
+
+배포 후 워크로드 로그에서 아래 메시지 확인:
+
+```
+[ DONE ] All services started
+  Ollama model  : qwen3:14b
+  Gateway token : <자동생성토큰>
+```
+
+로그 출력 후 Telegram에서 봇에게 메시지 보내면 바로 응답.
 
 ---
 
