@@ -166,7 +166,7 @@ log_ok "openclaw.json written"
 # ── 8. OpenClaw gateway 시작 ────────────────────────────────────────────────
 # Source: https://docs.openclaw.ai/cli/gateway
 log_start "Starting OpenClaw gateway"
-openclaw gateway --force &
+openclaw gateway &
 OPENCLAW_PID=$!
 
 # gateway 준비 대기
