@@ -74,6 +74,16 @@ else
     log_info "GITHUB_USERNAME / GITHUB_EMAIL not set — skipping GitHub setup (optional)"
 fi
 
+# ── 2-1. openclaw workspace 자동 복원 ───────────────────────────────────────
+# /workspace/.openclaw_copy 가 있으면 → /root/.openclaw/workspace 로 복원
+# backup.sh로 백업 후 git push 해둔 내용을 컨테이너 재시작 시 자동으로 불러옴
+if [ -d "/workspace/.openclaw_copy" ]; then
+    log_doing "Restoring openclaw workspace from .openclaw_copy"
+    mkdir -p /root/.openclaw/workspace
+    cp -r /workspace/.openclaw_copy/. /root/.openclaw/workspace/
+    log_ok "Workspace restored from /workspace/.openclaw_copy"
+fi
+
 # ── 3. Ollama 서비스 시작 ────────────────────────────────────────────────────
 log_start "Starting Ollama service"
 ollama serve &
@@ -197,11 +207,89 @@ OPENCLAW_PID=$!
 # gateway 준비 대기
 sleep 3
 
+# ── 9. 유틸리티 스크립트 생성 ────────────────────────────────────────────────
+# backup.sh  : openclaw workspace → /workspace/.openclaw_copy 백업
+# restore.sh : /workspace/.openclaw_copy → openclaw workspace 복원
+mkdir -p /workspace
+
+cat > /workspace/backup.sh << 'SCRIPT'
+#!/bin/bash
+# backup.sh — openclaw workspace를 /workspace/.openclaw_copy 로 백업
+# 컨테이너가 내려가기 전에 실행 후 git push로 작업 내용 보존
+
+log_ok()    { echo -e "\033[0;32m[  OK   ]\033[0m $1"; }
+log_doing() { echo -e "\033[0;36m[ DOING ]\033[0m $1"; }
+log_done()  { echo -e "\033[1;32m[ DONE  ]\033[0m $1"; }
+
+SRC="/root/.openclaw/workspace"
+DST="/workspace/.openclaw_copy"
+
+log_doing "Copying openclaw workspace -> .openclaw_copy"
+mkdir -p "$DST"
+cp -r "${SRC}/." "$DST/"
+log_ok "Copied to ${DST}"
+echo ""
+log_done "백업 완료. 아래 명령어로 GitHub에 push하세요:"
+echo ""
+echo "  cd /workspace"
+echo "  git add .openclaw_copy"
+echo "  git commit -m 'backup: openclaw workspace'"
+echo "  git push"
+SCRIPT
+
+cat > /workspace/restore.sh << 'SCRIPT'
+#!/bin/bash
+# restore.sh — /workspace/.openclaw_copy 를 openclaw workspace 로 복원
+# 컨테이너 재시작 후 이전 작업 내용을 수동으로 불러올 때 사용
+# (자동 복원: 컨테이너 시작 시 .openclaw_copy 가 있으면 entrypoint.sh 가 자동 처리)
+
+log_ok()    { echo -e "\033[0;32m[  OK   ]\033[0m $1"; }
+log_doing() { echo -e "\033[0;36m[ DOING ]\033[0m $1"; }
+log_done()  { echo -e "\033[1;32m[ DONE  ]\033[0m $1"; }
+log_stop()  { echo -e "\033[0;31m[ ERROR ]\033[0m $1"; exit 1; }
+
+SRC="/workspace/.openclaw_copy"
+DST="/root/.openclaw/workspace"
+
+[ ! -d "$SRC" ] && log_stop "${SRC} 없음. backup.sh 실행 또는 git pull 먼저 진행하세요."
+
+log_doing "Copying .openclaw_copy -> openclaw workspace"
+mkdir -p "$DST"
+cp -r "${SRC}/." "$DST/"
+log_ok "Restored to ${DST}"
+echo ""
+log_done "복원 완료. 아래 명령어로 openclaw를 재시작하세요:"
+echo ""
+echo "  pkill -f openclaw-gateway"
+echo ""
+echo "  (잠시 후 자동으로 재시작됩니다)"
+SCRIPT
+
+chmod +x /workspace/backup.sh /workspace/restore.sh
+log_ok "Scripts ready: /workspace/backup.sh  /workspace/restore.sh"
+
 log_done "All services started"
 echo ""
 echo "  Ollama model  : ${OLLAMA_MODEL}"
 echo "  Gateway token : ${OPENCLAW_TOKEN}"
 echo ""
 
-# 컨테이너 유지 (gateway 종료 시 컨테이너도 종료)
-wait $OPENCLAW_PID
+# ── 컨테이너 유지 ────────────────────────────────────────────────────────────
+# SIGTERM 수신 시 openclaw 종료 후 컨테이너 정상 종료
+# openclaw 가 죽으면 (restore.sh 후 pkill 등) 자동 재시작
+_stop() {
+    log_warn "Shutting down..."
+    kill "$OPENCLAW_PID" 2>/dev/null
+    exit 0
+}
+trap _stop SIGTERM SIGINT
+
+while true; do
+    if ! kill -0 "$OPENCLAW_PID" 2>/dev/null; then
+        log_warn "OpenClaw gateway stopped, restarting..."
+        sleep 1
+        openclaw gateway &
+        OPENCLAW_PID=$!
+    fi
+    sleep 3
+done
