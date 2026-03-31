@@ -91,8 +91,33 @@ log_ok "Ollama is ready"
 # ── 4. Ollama 모델 다운로드 ──────────────────────────────────────────────────
 # 주의: OLLAMA_MODEL에 반드시 태그를 포함할 것 (예: qwen3:14b)
 #       태그 없이 지정하면 :latest 로 시도하며, :latest 가 없는 모델은 오류 발생
+#
+# CLI 방식 대신 REST API(stream: true) 사용 이유:
+#   CLI는 non-TTY 환경에서 진행바 \r을 줄바꿈으로 출력 → 로그 수천 줄 발생
+#   API 스트리밍은 JSON 한 줄씩 수신 → 10% 단위 필터링으로 간결한 진행 로그 출력
+# Source: https://github.com/ollama/ollama/blob/main/docs/api.md#pull-a-model
 log_doing "Pulling Ollama model: ${OLLAMA_MODEL}"
-ollama pull "${OLLAMA_MODEL}"
+_LAST_BUCKET=-1
+curl -sf -X POST http://localhost:11434/api/pull \
+    -d "{\"name\":\"${OLLAMA_MODEL}\"}" \
+| while IFS= read -r line; do
+    STATUS=$(printf '%s' "$line" | jq -r '.status    // empty' 2>/dev/null)
+    TOTAL=$( printf '%s' "$line" | jq -r '.total     // 0'     2>/dev/null)
+    DONE=$(  printf '%s' "$line" | jq -r '.completed // 0'     2>/dev/null)
+    if [ "${TOTAL:-0}" -gt 0 ] 2>/dev/null; then
+        PCT=$(( DONE * 100 / TOTAL ))
+        BUCKET=$(( PCT / 10 * 10 ))
+        if [ "$BUCKET" -ne "$_LAST_BUCKET" ]; then
+            _LAST_BUCKET=$BUCKET
+            log_doing "  ${STATUS}: ${BUCKET}%"
+        fi
+    elif [ -n "$STATUS" ]; then
+        case "$STATUS" in
+            "pulling manifest"|"verifying sha256 digest"|"writing manifest"|"success")
+                log_doing "  ${STATUS}";;
+        esac
+    fi
+done
 log_ok "Model ready: ${OLLAMA_MODEL}"
 
 # ── 5. OpenClaw 토큰 생성 (항상 내부 자동 생성) ─────────────────────────────
