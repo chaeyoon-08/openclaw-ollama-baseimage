@@ -38,6 +38,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
     jq \
+    zstd \
     && rm -rf /var/lib/apt/lists/*
 
 # === Node.js 24 설치 ===
