@@ -177,22 +177,29 @@ http://<gcube-service-url>/__openclaw__/
 컨테이너가 내려가면 `/root/.openclaw/workspace` 내용이 사라집니다.
 `GITHUB_REPO_URL`로 클론된 `/workspace`에 백업하여 git push로 보존할 수 있습니다.
 
-### 백업 (컨테이너 내려가기 전)
+### backup.sh
+
+`/root/.openclaw/workspace` 내용을 `/workspace/.openclaw_copy`로 복사합니다.
+컨테이너가 내려가면 `/root/.openclaw/workspace`는 사라지므로, 내려가기 전에 실행하여 `git push`로 보존합니다.
 
 ```bash
 /workspace/backup.sh
 # → /workspace/.openclaw_copy 로 복사 후 git push 명령어 안내
 ```
 
-### 복원 (컨테이너 재시작 후)
+### restore.sh
 
-- **자동**: 시작 시 git repo 재클론 → `.openclaw_copy`가 포함되어 있으면 자동 복원 (사전에 `backup.sh` + `git push` 필요)
-- **수동**: 자동 복원이 안 된 경우
+`/workspace/.openclaw_copy` 내용을 `/root/.openclaw/workspace`로 복사합니다.
+컨테이너 재시작 후 자동 복원이 안 됐을 때 수동으로 이전 작업 내용을 불러옵니다.
 
 ```bash
 /workspace/restore.sh
 # → 복원 후 openclaw 재시작 명령어 안내
 ```
+
+### 자동 복원
+
+사전에 `backup.sh` + `git push`가 되어 있는 경우, 컨테이너 재시작 시 git repo를 재클론하면서 `.openclaw_copy`가 함께 내려옵니다. entrypoint.sh가 이를 감지하여 자동으로 복원합니다.
 
 ### openclaw gateway 재시작 (컨테이너 유지)
 

@@ -45,24 +45,9 @@ GPU (NVIDIA RTX 5090, VRAM 31.8 GiB)
 
 ## 3. 베이스 이미지 정보
 
-| 항목 | 내용 |
-|---|---|
-| 베이스 이미지 | `nvidia/cuda:12.8.1-runtime-ubuntu22.04` |
-| CUDA 버전 | 12.8.1 |
-| 지원 GPU 아키텍처 | Maxwell(sm_50) ~ Blackwell(sm_120) |
-| OS | Ubuntu 22.04 LTS |
-| 최소 호스트 드라이버 | 570.124.06 이상 |
-| 이미지 레지스트리 | `ghcr.io/chaeyoon-08/openclaw-ollama-baseimage` |
+베이스 이미지 사양, CUDA 버전, 지원 GPU 아키텍처, 사전 설치 도구 등 상세 정보는 아래 GitHub 저장소의 README를 참고
 
-**CUDA 12.8.1 선택 이유**
-- CUDA 13.x부터 Pascal(sm_60/61) 아키텍처 지원 제거
-- 12.8.1은 전 세대 GPU를 지원하는 마지막 안정 버전
-
-**사전 설치 도구**
-- `git` `curl` `wget` `nano` `vim`
-- `python3` `python3-pip`
-- `nodejs(24)` `npm`
-- `build-essential` `ca-certificates` `jq` `zstd`
+- https://github.com/chaeyoon-08/openclaw-ollama-baseimage
 
 ---
 
