@@ -66,6 +66,29 @@ GitHub 관련 변수는 모두 선택사항. `GITHUB_USERNAME`과 `GITHUB_EMAIL`
 
 ---
 
+## GitHub Personal Access Token 발급 방법
+
+GitHub → Settings → Developer settings → **Personal access tokens** → Tokens (classic) → Generate new token
+
+### 필요 권한 (Scope)
+
+| Scope | 이유 |
+|---|---|
+| `repo` | private repo 클론(`GITHUB_REPO_URL`) 및 git push(`GITHUB_TOKEN`) |
+
+> public repo만 사용한다면 `repo` 대신 `public_repo` 만 선택해도 됨.
+
+**Fine-grained token** 을 사용하는 경우 (더 세밀한 권한 제어):
+
+| 권한 항목 | 수준 |
+|---|---|
+| Contents | Read and Write |
+| Metadata | Read (자동 포함) |
+
+토큰 생성 후 `GITHUB_TOKEN` 환경변수에 입력. `ghp_` 로 시작하는 문자열.
+
+---
+
 ## Telegram User ID 확인 방법
 
 봇을 처음 사용하기 전에 본인의 Telegram 수치형 User ID가 필요합니다.
