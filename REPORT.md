@@ -138,5 +138,3 @@ docker run --env-file .env ghcr.io/chaeyoon-08/openclaw-ollama-baseimage:latest
 
 - **멀티 에이전트 등록**: OpenClaw에 역할별 에이전트를 복수 등록하여 작업 분리 및 전문화
 - **오케스트레이션 기능 추가**: 에이전트 간 태스크 분배·위임 구조 설계 및 구현
-- **Ollama 모델 볼륨 마운트**: 현재 컨테이너 재시작 시마다 모델 재다운로드 발생 — gcube 저장소를 `/root/.ollama` 경로에 마운트하여 해소
-- **OpenClaw gateway 토큰 고정**: 현재 시작 시마다 토큰 재생성 — `OPENCLAW_TOKEN` 환경변수 주입 옵션 추가 검토
