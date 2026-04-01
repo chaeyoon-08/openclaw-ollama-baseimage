@@ -202,7 +202,22 @@ jq -n \
 
 log_ok "openclaw.json written"
 
-# ── 8. OpenClaw gateway 시작 ────────────────────────────────────────────────
+# ── 8. OpenClaw 업데이트 체크 ────────────────────────────────────────────────
+log_start "Checking OpenClaw version"
+OPENCLAW_CURRENT=$(npm list -g openclaw --depth=0 2>/dev/null | grep openclaw | sed 's/.*@//')
+OPENCLAW_LATEST=$(npm view openclaw version 2>/dev/null)
+
+if [ -z "$OPENCLAW_LATEST" ]; then
+    log_warn "Could not fetch latest openclaw version — skipping update"
+elif [ "$OPENCLAW_CURRENT" = "$OPENCLAW_LATEST" ]; then
+    log_ok "openclaw is up to date (${OPENCLAW_CURRENT})"
+else
+    log_doing "Updating openclaw: ${OPENCLAW_CURRENT} → ${OPENCLAW_LATEST}"
+    npm install -g openclaw@latest
+    log_ok "openclaw updated to ${OPENCLAW_LATEST}"
+fi
+
+# ── 9. OpenClaw gateway 시작 ────────────────────────────────────────────────
 # Source: https://docs.openclaw.ai/cli/gateway
 log_start "Starting OpenClaw gateway"
 openclaw gateway &
@@ -211,7 +226,7 @@ OPENCLAW_PID=$!
 # gateway 준비 대기
 sleep 3
 
-# ── 9. 유틸리티 스크립트 생성 ────────────────────────────────────────────────
+# ── 10. 유틸리티 스크립트 생성 ───────────────────────────────────────────────
 # backup.sh  : openclaw workspace → /workspace/.openclaw_copy 백업
 # restore.sh : /workspace/.openclaw_copy → openclaw workspace 복원
 mkdir -p /workspace
