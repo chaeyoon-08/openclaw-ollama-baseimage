@@ -167,7 +167,8 @@ jq -n \
             mode: "local",
             port: 18789,
             bind: "lan",
-            auth: { mode: "token", token: $token }
+            auth: { mode: "token", token: $token },
+            controlUi: { allowedOrigins: ["*"] }
         },
         models: {
             mode: "merge",
@@ -203,18 +204,37 @@ jq -n \
 
 log_ok "openclaw.json written"
 
-# ── 7-1. 외부 provider API key 로드 (클라우드 저장소) ───────────────────────
-# /data/data/providers.json 에 API key가 있으면 환경변수로 export
-# OpenClaw가 시작 시 표준 환경변수(ANTHROPIC_API_KEY 등)를 자동 감지
-# 형식: {"ANTHROPIC_API_KEY":"sk-ant-...","OPENAI_API_KEY":"sk-..."}
-if [ "${CLOUD_STORAGE_AVAILABLE}" = "true" ] && [ -f "${STORAGE_PATH}/providers.json" ]; then
-    log_doing "Loading external provider keys from ${STORAGE_PATH}/providers.json"
-    while IFS= read -r _entry; do
-        export "$_entry"
-    done < <(jq -r 'to_entries[] | "\(.key)=\(.value)"' "${STORAGE_PATH}/providers.json")
-    log_ok "External provider keys loaded"
+# ── 7-1. 외부 provider 등록 (gcube 환경변수 기반) ────────────────────────────
+# gcube 워크로드 환경변수에 API key가 있으면 openclaw.json providers에 자동 추가
+# 지원: ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, MISTRAL_API_KEY,
+#       DEEPSEEK_API_KEY, GROQ_API_KEY
+_EXTRA_PROVIDERS='{}'
+_add_provider() {
+    local _KEY="$1" _ID="$2" _API="$3"
+    if [ -n "$_KEY" ]; then
+        _EXTRA_PROVIDERS=$(printf '%s' "$_EXTRA_PROVIDERS" | jq \
+            --arg id  "$_ID" \
+            --arg api "$_API" \
+            --arg key "$_KEY" \
+            '. + {($id): {api: $api, apiKey: $key}}')
+        log_ok "Provider registered: $_ID"
+    fi
+}
+
+_add_provider "$ANTHROPIC_API_KEY" "anthropic" "anthropic"
+_add_provider "$OPENAI_API_KEY"    "openai"    "openai"
+_add_provider "$GEMINI_API_KEY"    "google"    "google"
+_add_provider "$MISTRAL_API_KEY"   "mistral"   "openai"
+_add_provider "$DEEPSEEK_API_KEY"  "deepseek"  "openai"
+_add_provider "$GROQ_API_KEY"      "groq"      "openai"
+
+if [ "$_EXTRA_PROVIDERS" != '{}' ]; then
+    jq --argjson p "$_EXTRA_PROVIDERS" '.models.providers += $p' \
+        /root/.openclaw/openclaw.json > /tmp/oc_merged.json \
+        && mv /tmp/oc_merged.json /root/.openclaw/openclaw.json
+    log_ok "External providers added to openclaw.json"
 else
-    log_info "No /data/data/providers.json — using Ollama only"
+    log_info "No external provider API keys set — using Ollama only"
 fi
 
 # ── 8. OpenClaw gateway 시작 ────────────────────────────────────────────────
@@ -277,13 +297,6 @@ while true; do
     if ! kill -0 "$OPENCLAW_PID" 2>/dev/null; then
         log_warn "OpenClaw gateway stopped, restarting..."
         sleep 1
-        # gateway 재시작 시 providers.json 재로드 (파일 변경 시 pkill만으로 반영)
-        if [ "${CLOUD_STORAGE_AVAILABLE}" = "true" ] && [ -f "${STORAGE_PATH}/providers.json" ]; then
-            while IFS= read -r _entry; do
-                export "$_entry"
-            done < <(jq -r 'to_entries[] | "\(.key)=\(.value)"' "${STORAGE_PATH}/providers.json")
-            log_info "providers.json reloaded"
-        fi
         openclaw gateway &
         OPENCLAW_PID=$!
     fi
