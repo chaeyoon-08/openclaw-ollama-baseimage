@@ -176,7 +176,7 @@ jq -n \
             port: 18789,
             bind: "lan",
             auth: { mode: "token", token: $token },
-            controlUi: { allowedOrigins: ["*"] }
+            controlUi: { allowedOrigins: ["*"], dangerouslyDisableDeviceAuth: true }
         },
         models: {
             mode: "merge",
