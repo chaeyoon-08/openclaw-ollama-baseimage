@@ -210,23 +210,24 @@ log_ok "openclaw.json written"
 #       DEEPSEEK_API_KEY, GROQ_API_KEY
 _EXTRA_PROVIDERS='{}'
 _add_provider() {
-    local _KEY="$1" _ID="$2" _API="$3"
+    local _KEY="$1" _ID="$2" _API="$3" _URL="$4"
     if [ -n "$_KEY" ]; then
         _EXTRA_PROVIDERS=$(printf '%s' "$_EXTRA_PROVIDERS" | jq \
             --arg id  "$_ID" \
             --arg api "$_API" \
             --arg key "$_KEY" \
-            '. + {($id): {api: $api, apiKey: $key}}')
+            --arg url "$_URL" \
+            '. + {($id): {api: $api, apiKey: $key, baseUrl: $url, models: []}}')
         log_ok "Provider registered: $_ID"
     fi
 }
 
-_add_provider "$ANTHROPIC_API_KEY" "anthropic" "anthropic"
-_add_provider "$OPENAI_API_KEY"    "openai"    "openai"
-_add_provider "$GEMINI_API_KEY"    "google"    "google"
-_add_provider "$MISTRAL_API_KEY"   "mistral"   "openai"
-_add_provider "$DEEPSEEK_API_KEY"  "deepseek"  "openai"
-_add_provider "$GROQ_API_KEY"      "groq"      "openai"
+_add_provider "$ANTHROPIC_API_KEY" "anthropic" "anthropic-messages"      "https://api.anthropic.com"
+_add_provider "$OPENAI_API_KEY"    "openai"    "openai-responses"         "https://api.openai.com"
+_add_provider "$GEMINI_API_KEY"    "google"    "google-generative-ai"     "https://generativelanguage.googleapis.com"
+_add_provider "$MISTRAL_API_KEY"   "mistral"   "openai-completions"       "https://api.mistral.ai"
+_add_provider "$DEEPSEEK_API_KEY"  "deepseek"  "openai-completions"       "https://api.deepseek.com"
+_add_provider "$GROQ_API_KEY"      "groq"      "openai-completions"       "https://api.groq.com/openai"
 
 if [ "$_EXTRA_PROVIDERS" != '{}' ]; then
     jq --argjson p "$_EXTRA_PROVIDERS" '.models.providers += $p' \
