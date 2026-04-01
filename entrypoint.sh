@@ -239,20 +239,20 @@ if [ "${CLOUD_STORAGE_AVAILABLE}" = "true" ]; then
         while read -r _dummy; do
             _NOW=$(date +%s)
             _LAST=$(cat "$_LAST_SAVE_FILE" 2>/dev/null || echo 0)
-            [ $((_NOW - _LAST)) -lt 300 ] && continue
+            [ $((_NOW - _LAST)) -lt 180 ] && continue
             echo "$_NOW" > "$_LAST_SAVE_FILE"
             _NAME="temp-$(date '+%Y%m%d-%H%M')"
             mkdir -p "$_TEMP_BACKUP_DIR/$_NAME"
             cp -r "${_WORKSPACE_DIR}/." "$_TEMP_BACKUP_DIR/$_NAME/"
             # 최대 5개 유지: 초과 시 가장 오래된 것 삭제
-            while [ "$(ls "$_TEMP_BACKUP_DIR" | wc -l)" -gt 5 ]; do
+            while [ "$(ls "$_TEMP_BACKUP_DIR" | wc -l)" -gt 10 ]; do
                 _OLDEST=$(ls -t "$_TEMP_BACKUP_DIR" | tail -1)
                 rm -rf "$_TEMP_BACKUP_DIR/$_OLDEST"
             done
             log_info "Auto-saved workspace: $_NAME"
         done
     ) &
-    log_ok "Auto-save enabled (5-min debounce, max 5 temp backups)"
+    log_ok "Auto-save enabled (3-min debounce, max 10 temp backups)"
 else
     log_info "Auto-save disabled — cloud storage not mounted"
 fi
@@ -277,6 +277,13 @@ while true; do
     if ! kill -0 "$OPENCLAW_PID" 2>/dev/null; then
         log_warn "OpenClaw gateway stopped, restarting..."
         sleep 1
+        # gateway 재시작 시 providers.json 재로드 (파일 변경 시 pkill만으로 반영)
+        if [ "${CLOUD_STORAGE_AVAILABLE}" = "true" ] && [ -f "${STORAGE_PATH}/providers.json" ]; then
+            while IFS= read -r _entry; do
+                export "$_entry"
+            done < <(jq -r 'to_entries[] | "\(.key)=\(.value)"' "${STORAGE_PATH}/providers.json")
+            log_info "providers.json reloaded"
+        fi
         openclaw gateway &
         OPENCLAW_PID=$!
     fi

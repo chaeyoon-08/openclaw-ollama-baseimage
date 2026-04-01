@@ -8,7 +8,7 @@ gcube 워크로드에 배포할 **OpenClaw + Ollama base Docker image** 구축.
 컨테이너를 띄우기만 하면 환경변수 기반으로 Telegram 연동, GitHub 설정, Ollama 모델 다운로드가 자동 완료되는 환경.
 
 **배경**: API 비용 절감(Anthropic 대신 로컬 Ollama) + 보안(로컬 PC 대신 gcube 독립 환경)
-**범위**: 컨테이너 내부만 인식. gcube 클라우드 저장소는 `/data/data`로 마운트.
+**범위**: 컨테이너 내부만 인식. gcube 클라우드 저장소는 `STORAGE_PATH` 환경변수로 지정 (기본값: `/mnt/storage`).
 
 ---
 
@@ -29,7 +29,7 @@ gcube 워크로드 (GPU 컨테이너)
 ├── entrypoint.sh       ← 환경변수 기반 자동 설정
 └── 런타임:
     Telegram ↔ openclaw gateway (127.0.0.1:18789) ↔ Ollama (127.0.0.1:11434)
-    gcube 클라우드 저장소 → /data/data (볼륨 마운트)
+    gcube 클라우드 저장소 → /mnt/storage (STORAGE_PATH, 볼륨 마운트)
 ```
 
 ---
