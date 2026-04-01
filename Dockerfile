@@ -26,6 +26,9 @@ ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
 # Ollama bind address (컨테이너 내부 전용)
 ENV OLLAMA_HOST=127.0.0.1:11434
 
+# 시간대 설정
+ENV TZ=Asia/Seoul
+
 # === 기본 도구 설치 ===
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \

@@ -135,8 +135,16 @@ curl -sf -X POST http://localhost:11434/api/pull \
 done
 log_ok "Model ready: ${OLLAMA_MODEL}"
 
-# ── 5. OpenClaw 토큰 생성 (항상 내부 자동 생성) ─────────────────────────────
-OPENCLAW_TOKEN=$(head -c 32 /dev/urandom | base64 | tr -d '/+=' | head -c 32)
+# ── 5. OpenClaw 토큰 설정 ────────────────────────────────────────────────────
+# OPENCLAW_GATEWAY_TOKEN 환경변수가 있으면 사용 (동일 워크로드 재시작 시 토큰 유지)
+# 없으면 랜덤 생성
+if [ -n "$OPENCLAW_GATEWAY_TOKEN" ]; then
+    OPENCLAW_TOKEN="$OPENCLAW_GATEWAY_TOKEN"
+    log_ok "Gateway token: using provided OPENCLAW_GATEWAY_TOKEN"
+else
+    OPENCLAW_TOKEN=$(head -c 32 /dev/urandom | base64 | tr -d '/+=' | head -c 32)
+    log_ok "Gateway token: auto-generated"
+fi
 
 # ── 6. allowFrom JSON 배열 생성 (쉼표 구분 → JSON 배열) ────────────────────
 # TELEGRAM_ALLOWED_USER_IDS="123456789,987654321" → ["123456789","987654321"]
@@ -241,6 +249,7 @@ fi
 # ── 8. OpenClaw gateway 시작 ────────────────────────────────────────────────
 # Source: https://docs.openclaw.ai/cli/gateway
 log_start "Starting OpenClaw gateway"
+export OPENCLAW_GATEWAY_TOKEN="$OPENCLAW_TOKEN"
 openclaw gateway &
 OPENCLAW_PID=$!
 

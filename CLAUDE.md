@@ -34,6 +34,12 @@ gcube 워크로드 (GPU 컨테이너)
 
 ---
 
+## 협업 규칙
+
+- **분석 우선**: 사용자의 지시에 개인적인 판단이나 추가 의견을 섞지 말 것. 지시한 내용을 그대로 분석하고 실행할 것
+
+---
+
 ## 핵심 규칙
 
 - **공식 문서 확인 필수**: `spec/SPEC.md`의 출처 URL 참조. 확인되지 않은 옵션 사용 금지
@@ -53,6 +59,7 @@ gcube 워크로드 (GPU 컨테이너)
 | `TELEGRAM_BOT_TOKEN` | 필수 | Telegram 봇 연동 |
 | `TELEGRAM_ALLOWED_USER_IDS` | 필수 | 봇 허용 수치형 Telegram user ID (쉼표로 여러 명 가능) |
 | `OLLAMA_MODEL` | 필수 | 사용할 Ollama 모델. **반드시 태그 포함** (예: `qwen3:14b`) |
+| `OPENCLAW_GATEWAY_TOKEN` | 선택 | Control UI 연결 토큰. 고정 시 재시작 후 브라우저 세션 유지. 미설정 시 자동 생성 |
 | `GITHUB_USERNAME` | 선택 | git config user.name (없으면 GitHub 설정 전체 스킵) |
 | `GITHUB_EMAIL` | 선택 | git config user.email (없으면 GitHub 설정 전체 스킵) |
 | `GITHUB_TOKEN` | 선택 | GitHub Personal Access Token (git push 인증) |
