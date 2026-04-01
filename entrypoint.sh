@@ -9,7 +9,8 @@
 #
 # 환경변수:
 #   필수: TELEGRAM_BOT_TOKEN, TELEGRAM_ALLOWED_USER_IDS, OLLAMA_MODEL
-#   선택: GITHUB_USERNAME, GITHUB_EMAIL, GITHUB_TOKEN, GITHUB_REPO_URL, OPENCLAW_TOKEN
+#   선택: GITHUB_USERNAME, GITHUB_EMAIL, GITHUB_TOKEN, GITHUB_REPO_URL
+#         STORAGE_PATH (클라우드 저장소 마운트 경로, 기본값: /mnt/storage)
 #
 #   GitHub 관련 변수는 모두 선택. GITHUB_USERNAME + GITHUB_EMAIL 이 없으면 GitHub 설정 전체 스킵.
 
@@ -74,18 +75,18 @@ else
     log_info "GITHUB_USERNAME / GITHUB_EMAIL not set — skipping GitHub setup (optional)"
 fi
 
-# ── 2-1. openclaw workspace 자동 복원 ───────────────────────────────────────
-# /workspace/.openclaw_copy 가 있으면 → /root/.openclaw/workspace 로 복원
-# backup.sh로 백업 후 git push 해둔 내용을 컨테이너 재시작 시 git clone과 함께 복원됨
-# /workspace/.openclaw_copy 가 없으면 → 빈 디렉터리 생성 (첫 시작 시)
-if [ -d "/workspace/.openclaw_copy" ]; then
-    log_doing "Restoring openclaw workspace from .openclaw_copy"
-    mkdir -p /root/.openclaw/workspace
-    cp -r /workspace/.openclaw_copy/. /root/.openclaw/workspace/
-    log_ok "Workspace restored from /workspace/.openclaw_copy"
+# ── 2-1. 클라우드 저장소 준비 ────────────────────────────────────────────────
+# STORAGE_PATH: gcube 워크로드 환경변수로 지정 (기본값: /mnt/storage)
+# gcube Storage Management에서 연결한 저장소의 마운트 경로와 일치해야 함
+# 컨테이너 시작 시 자동 복원 없음 — Telegram에서 사용자가 직접 복원 요청
+STORAGE_PATH="${STORAGE_PATH:-/mnt/storage}"
+if [ -d "$STORAGE_PATH" ]; then
+    mkdir -p "$STORAGE_PATH/backups/manual" "$STORAGE_PATH/backups/temp"
+    log_ok "Cloud storage ready: ${STORAGE_PATH}/backups/"
+    CLOUD_STORAGE_AVAILABLE=true
 else
-    mkdir -p /workspace/.openclaw_copy
-    log_info "Created empty /workspace/.openclaw_copy"
+    log_info "Cloud storage not mounted (${STORAGE_PATH}) — backup features unavailable"
+    CLOUD_STORAGE_AVAILABLE=false
 fi
 
 # ── 3. Ollama 서비스 시작 ────────────────────────────────────────────────────
@@ -202,6 +203,20 @@ jq -n \
 
 log_ok "openclaw.json written"
 
+# ── 7-1. 외부 provider API key 로드 (클라우드 저장소) ───────────────────────
+# /data/data/providers.json 에 API key가 있으면 환경변수로 export
+# OpenClaw가 시작 시 표준 환경변수(ANTHROPIC_API_KEY 등)를 자동 감지
+# 형식: {"ANTHROPIC_API_KEY":"sk-ant-...","OPENAI_API_KEY":"sk-..."}
+if [ "${CLOUD_STORAGE_AVAILABLE}" = "true" ] && [ -f "${STORAGE_PATH}/providers.json" ]; then
+    log_doing "Loading external provider keys from ${STORAGE_PATH}/providers.json"
+    while IFS= read -r _entry; do
+        export "$_entry"
+    done < <(jq -r 'to_entries[] | "\(.key)=\(.value)"' "${STORAGE_PATH}/providers.json")
+    log_ok "External provider keys loaded"
+else
+    log_info "No /data/data/providers.json — using Ollama only"
+fi
+
 # ── 8. OpenClaw gateway 시작 ────────────────────────────────────────────────
 # Source: https://docs.openclaw.ai/cli/gateway
 log_start "Starting OpenClaw gateway"
@@ -211,70 +226,35 @@ OPENCLAW_PID=$!
 # gateway 준비 대기
 sleep 3
 
-# ── 10. 유틸리티 스크립트 생성 ───────────────────────────────────────────────
-# backup.sh  : openclaw workspace → /workspace/.openclaw_copy 백업
-# restore.sh : /workspace/.openclaw_copy → openclaw workspace 복원
-mkdir -p /workspace
+# ── 9. 자동 임시 백업 루프 ───────────────────────────────────────────────────
+# workspace 변경 감지 시 temp 백업 생성 (5분 디바운싱, 최대 5개 보관)
+# inotifywait: 변경 즉시 감지 / 디바운싱: 과도한 백업 방지
+_WORKSPACE_DIR="/root/.openclaw/workspace"
+_TEMP_BACKUP_DIR="${STORAGE_PATH}/backups/temp"
+_LAST_SAVE_FILE="/tmp/.openclaw_last_save"
 
-if [ ! -f /workspace/backup.sh ]; then
-cat > /workspace/backup.sh << 'SCRIPT'
-#!/bin/bash
-# backup.sh — openclaw workspace를 /workspace/.openclaw_copy 로 백업
-# 컨테이너가 내려가기 전에 실행 후 git push로 작업 내용 보존
-
-log_ok()    { echo -e "\033[0;32m[  OK   ]\033[0m $1"; }
-log_doing() { echo -e "\033[0;36m[ DOING ]\033[0m $1"; }
-log_done()  { echo -e "\033[1;32m[ DONE  ]\033[0m $1"; }
-
-SRC="/root/.openclaw/workspace"
-DST="/workspace/.openclaw_copy"
-
-log_doing "Copying openclaw workspace -> .openclaw_copy"
-mkdir -p "$DST"
-cp -r "${SRC}/." "$DST/"
-log_ok "Copied to ${DST}"
-echo ""
-log_done "백업 완료. 아래 명령어로 GitHub에 push하세요:"
-echo ""
-echo "  cd /workspace"
-echo "  git add .openclaw_copy"
-echo "  git commit -m 'backup: openclaw workspace'"
-echo "  git push"
-SCRIPT
-chmod +x /workspace/backup.sh
-log_ok "Created /workspace/backup.sh"
-fi
-
-if [ ! -f /workspace/restore.sh ]; then
-cat > /workspace/restore.sh << 'SCRIPT'
-#!/bin/bash
-# restore.sh — /workspace/.openclaw_copy 를 openclaw workspace 로 복원
-# 컨테이너 재시작 후 이전 작업 내용을 수동으로 불러올 때 사용
-# (자동 복원: 컨테이너 시작 시 .openclaw_copy 가 있으면 entrypoint.sh 가 자동 처리)
-
-log_ok()    { echo -e "\033[0;32m[  OK   ]\033[0m $1"; }
-log_doing() { echo -e "\033[0;36m[ DOING ]\033[0m $1"; }
-log_done()  { echo -e "\033[1;32m[ DONE  ]\033[0m $1"; }
-log_stop()  { echo -e "\033[0;31m[ ERROR ]\033[0m $1"; exit 1; }
-
-SRC="/workspace/.openclaw_copy"
-DST="/root/.openclaw/workspace"
-
-[ ! -d "$SRC" ] && log_stop "${SRC} 없음. backup.sh 실행 또는 git pull 먼저 진행하세요."
-
-log_doing "Copying .openclaw_copy -> openclaw workspace"
-mkdir -p "$DST"
-cp -r "${SRC}/." "$DST/"
-log_ok "Restored to ${DST}"
-echo ""
-log_done "복원 완료. 아래 명령어로 openclaw를 재시작하세요:"
-echo ""
-echo "  pkill -f openclaw-gateway"
-echo ""
-echo "  (잠시 후 자동으로 재시작됩니다)"
-SCRIPT
-chmod +x /workspace/restore.sh
-log_ok "Created /workspace/restore.sh"
+if [ "${CLOUD_STORAGE_AVAILABLE}" = "true" ]; then
+    (
+        inotifywait -m -r -q -e modify,create,delete,move "$_WORKSPACE_DIR" 2>/dev/null | \
+        while read -r _dummy; do
+            _NOW=$(date +%s)
+            _LAST=$(cat "$_LAST_SAVE_FILE" 2>/dev/null || echo 0)
+            [ $((_NOW - _LAST)) -lt 300 ] && continue
+            echo "$_NOW" > "$_LAST_SAVE_FILE"
+            _NAME="temp-$(date '+%Y%m%d-%H%M')"
+            mkdir -p "$_TEMP_BACKUP_DIR/$_NAME"
+            cp -r "${_WORKSPACE_DIR}/." "$_TEMP_BACKUP_DIR/$_NAME/"
+            # 최대 5개 유지: 초과 시 가장 오래된 것 삭제
+            while [ "$(ls "$_TEMP_BACKUP_DIR" | wc -l)" -gt 5 ]; do
+                _OLDEST=$(ls -t "$_TEMP_BACKUP_DIR" | tail -1)
+                rm -rf "$_TEMP_BACKUP_DIR/$_OLDEST"
+            done
+            log_info "Auto-saved workspace: $_NAME"
+        done
+    ) &
+    log_ok "Auto-save enabled (5-min debounce, max 5 temp backups)"
+else
+    log_info "Auto-save disabled — cloud storage not mounted"
 fi
 
 log_done "All services started"

@@ -44,10 +44,13 @@ Private 레지스트리는 Storage Management에서 인증 정보 사전 등록 
 
 ## 클라우드 저장소 마운트
 
-- **마운트 경로**: `/data/data` (컨테이너 내부 고정 경로)
+- **마운트 경로**: 사용자가 워크로드 등록 시 직접 지정 (고정 경로 없음)
 - **지원 스토리지**: Dropbox, AWS S3 (IAM access key, secret, bucket region 설정)
 - Storage Management 메뉴에서 연결 설정 후 워크로드에 연결
 - 출처: https://data-alliance.github.io/gai-platform-docs/user-guide/workload/pv-user-guide/
+
+> 이 이미지에서는 `STORAGE_PATH` 환경변수로 마운트 경로를 지정 (기본값: `/mnt/storage`).
+> gcube에서 마운트 경로를 `/mnt/storage`로 설정하면 별도 환경변수 없이 동작.
 
 ---
 

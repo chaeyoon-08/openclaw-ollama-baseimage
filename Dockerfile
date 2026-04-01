@@ -39,6 +39,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
     jq \
     zstd \
+    inotify-tools \
     && rm -rf /var/lib/apt/lists/*
 
 # === Node.js 24 설치 ===
@@ -68,7 +69,8 @@ RUN mkdir -p /root/.openclaw/workspace /workspace
 EXPOSE 18789
 
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+COPY backup-manager.sh /usr/local/bin/backup-manager.sh
+RUN chmod +x /entrypoint.sh /usr/local/bin/backup-manager.sh
 
 WORKDIR /workspace
 
