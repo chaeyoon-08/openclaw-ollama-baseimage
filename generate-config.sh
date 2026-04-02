@@ -302,7 +302,13 @@ if [ "$_HAS_AGENTS" = "true" ]; then
             agents: {
                 defaults: {
                     workspace: "/root/.openclaw/workspace",
-                    model: { primary: ("ollama/" + $model) }
+                    model: { primary: ("ollama/" + $model) },
+                    subagents: {
+                        maxSpawnDepth: 2,
+                        maxChildrenPerAgent: 5,
+                        maxConcurrent: 8,
+                        runTimeoutSeconds: 300
+                    }
                 },
                 list: $agent_list
             },
@@ -318,7 +324,7 @@ if [ "$_HAS_AGENTS" = "true" ]; then
 
     log_ok "Multi-agent config written"
     log_ok "  Agents: main + $(printf '%s' "$_AGENT_IDS" | jq -r '[.[] | select(. != "main")] | join(", ")')"
-    log_ok "  A2A enabled"
+    log_ok "  A2A + subagents enabled"
 
     # 에이전트별 workspace/agentDir 생성
     printf '%s' "$_FULL_AGENT_LIST" | jq -r '.[].workspace' | while read -r _ws; do
