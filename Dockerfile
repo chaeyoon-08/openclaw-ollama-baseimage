@@ -42,7 +42,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
     jq \
     zstd \
-    inotify-tools \
     && rm -rf /var/lib/apt/lists/*
 
 # === Node.js 24 설치 ===
@@ -72,10 +71,9 @@ RUN mkdir -p /root/.openclaw/workspace /workspace
 EXPOSE 18789
 
 COPY entrypoint.sh /entrypoint.sh
-COPY backup-manager.sh /usr/local/bin/backup-manager.sh
 COPY generate-config.sh /usr/local/bin/generate-config.sh
 COPY reload.sh /usr/local/bin/reload.sh
-RUN chmod +x /entrypoint.sh /usr/local/bin/backup-manager.sh \
+RUN chmod +x /entrypoint.sh \
     /usr/local/bin/generate-config.sh /usr/local/bin/reload.sh
 
 # 기본 workspace 파일 탑재 (entrypoint.sh에서 초기화 시 사용)
