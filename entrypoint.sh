@@ -75,20 +75,6 @@ else
     log_info "GITHUB_USERNAME / GITHUB_EMAIL not set — skipping GitHub setup (optional)"
 fi
 
-# ── 2-1. 클라우드 저장소 준비 ────────────────────────────────────────────────
-# STORAGE_PATH: gcube 워크로드 환경변수로 지정 (기본값: /mnt/storage)
-# gcube Storage Management에서 연결한 저장소의 마운트 경로와 일치해야 함
-# 컨테이너 시작 시 자동 복원 없음 — Telegram에서 사용자가 직접 복원 요청
-STORAGE_PATH="${STORAGE_PATH:-/mnt/storage}"
-if [ -d "$STORAGE_PATH" ]; then
-    mkdir -p "$STORAGE_PATH/backups/manual" "$STORAGE_PATH/backups/temp"
-    log_ok "Cloud storage ready: ${STORAGE_PATH}/backups/"
-    CLOUD_STORAGE_AVAILABLE=true
-else
-    log_info "Cloud storage not mounted (${STORAGE_PATH}) — backup features unavailable"
-    CLOUD_STORAGE_AVAILABLE=false
-fi
-
 # ── 3. Ollama 서비스 시작 ────────────────────────────────────────────────────
 log_start "Starting Ollama service"
 ollama serve &
@@ -205,37 +191,6 @@ OPENCLAW_PID=$!
 
 # gateway 준비 대기
 sleep 3
-
-# ── 9. 자동 임시 백업 루프 ───────────────────────────────────────────────────
-# workspace 변경 감지 시 temp 백업 생성 (5분 디바운싱, 최대 5개 보관)
-# inotifywait: 변경 즉시 감지 / 디바운싱: 과도한 백업 방지
-_WORKSPACE_DIR="/root/.openclaw/workspace"
-_TEMP_BACKUP_DIR="${STORAGE_PATH}/backups/temp"
-_LAST_SAVE_FILE="/tmp/.openclaw_last_save"
-
-if [ "${CLOUD_STORAGE_AVAILABLE}" = "true" ]; then
-    (
-        inotifywait -m -r -q -e modify,create,delete,move "$_WORKSPACE_DIR" 2>/dev/null | \
-        while read -r _dummy; do
-            _NOW=$(date +%s)
-            _LAST=$(cat "$_LAST_SAVE_FILE" 2>/dev/null || echo 0)
-            [ $((_NOW - _LAST)) -lt 180 ] && continue
-            echo "$_NOW" > "$_LAST_SAVE_FILE"
-            _NAME="temp-$(date '+%Y%m%d-%H%M')"
-            mkdir -p "$_TEMP_BACKUP_DIR/$_NAME"
-            cp -r "${_WORKSPACE_DIR}/." "$_TEMP_BACKUP_DIR/$_NAME/"
-            # 최대 5개 유지: 초과 시 가장 오래된 것 삭제
-            while [ "$(ls "$_TEMP_BACKUP_DIR" | wc -l)" -gt 10 ]; do
-                _OLDEST=$(ls -t "$_TEMP_BACKUP_DIR" | tail -1)
-                rm -rf "$_TEMP_BACKUP_DIR/$_OLDEST"
-            done
-            log_info "Auto-saved workspace: $_NAME"
-        done
-    ) &
-    log_ok "Auto-save enabled (3-min debounce, max 10 temp backups)"
-else
-    log_info "Auto-save disabled — cloud storage not mounted"
-fi
 
 log_done "All services started"
 echo ""
