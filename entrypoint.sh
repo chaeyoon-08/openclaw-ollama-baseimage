@@ -121,6 +121,42 @@ curl -sf -X POST http://localhost:11434/api/pull \
 done
 log_ok "Model ready: ${OLLAMA_MODEL}"
 
+# ── 4-1. AGENT_* 중 Ollama 모델 추가 다운로드 ───────────────────────────────
+# AGENT_N=role,ollama/model 형식에서 ollama/ 모델을 찾아 다운로드
+# 이미 다운로드된 모델은 자동 스킵됨
+env | grep '^AGENT_[0-9]*=' | while IFS= read -r _line; do
+    _val=$(echo "$_line" | cut -d= -f2-)
+    _pm=$(echo "$_val" | cut -d, -f2)
+    _provider=$(echo "$_pm" | cut -d/ -f1)
+    _model=$(echo "$_pm" | cut -d/ -f2-)
+
+    if [ "$_provider" = "ollama" ] && [ -n "$_model" ] && [ "$_model" != "$OLLAMA_MODEL" ]; then
+        log_doing "Pulling additional Ollama model: ${_model}"
+        _LAST_BUCKET=-1
+        curl -sf -X POST http://localhost:11434/api/pull \
+            -d "{\"name\":\"${_model}\"}" \
+        | while IFS= read -r line; do
+            STATUS=$(printf '%s' "$line" | jq -r '.status    // empty' 2>/dev/null)
+            TOTAL=$( printf '%s' "$line" | jq -r '.total     // 0'     2>/dev/null)
+            DONE=$(  printf '%s' "$line" | jq -r '.completed // 0'     2>/dev/null)
+            if [ "${TOTAL:-0}" -gt 0 ] 2>/dev/null; then
+                PCT=$(( DONE * 100 / TOTAL ))
+                BUCKET=$(( PCT / 10 * 10 ))
+                if [ "$BUCKET" -ne "$_LAST_BUCKET" ]; then
+                    _LAST_BUCKET=$BUCKET
+                    log_doing "  ${STATUS}: ${BUCKET}%"
+                fi
+            elif [ -n "$STATUS" ]; then
+                case "$STATUS" in
+                    "pulling manifest"|"verifying sha256 digest"|"writing manifest"|"success")
+                        log_doing "  ${STATUS}";;
+                esac
+            fi
+        done
+        log_ok "Model ready: ${_model}"
+    fi
+done
+
 # ── 5. 환경변수 → .env 덤프 ──────────────────────────────────────────────────
 # gcube 워크로드 환경변수를 .env 파일로 저장
 # 사용자가 나중에 .env를 직접 수정 + reload.sh로 설정 갱신 가능
