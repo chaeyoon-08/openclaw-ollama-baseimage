@@ -21,6 +21,7 @@ on:
   push:
     branches:
       - main
+      - feature/agent-structure
     tags:
       - "v*.*.*"
   workflow_dispatch:
