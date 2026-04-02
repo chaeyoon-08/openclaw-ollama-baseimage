@@ -1,7 +1,9 @@
 # .github/workflows/docker-publish.yml
 #
 # Docker 이미지를 빌드하여 GitHub Container Registry (ghcr.io) 에 push
-# 빌드 전 openclaw 최신 버전 및 릴리즈 노트를 README.md 에 자동 반영
+# 브랜치별 다른 이미지 이름으로 빌드:
+#   main                    → ghcr.io/<owner>/openclaw-bot
+#   feature/agent-structure → ghcr.io/<owner>/openclaw-bot-agent
 #
 # References:
 #   ghcr.io 인증:           https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry
@@ -28,7 +30,6 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
 
 permissions:
   contents: write
@@ -41,6 +42,24 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+
+      - name: Set image name by branch
+        id: image
+        run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          BRANCH="${GITHUB_REF#refs/heads/}"
+
+          case "$BRANCH" in
+            main)
+              echo "name=${OWNER}/openclaw-bot" >> "$GITHUB_OUTPUT"
+              ;;
+            feature/agent-structure)
+              echo "name=${OWNER}/openclaw-bot-agent" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "name=${OWNER}/openclaw-bot" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
 
       - name: Update OpenClaw version in README
         run: |
@@ -85,7 +104,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
