@@ -12,29 +12,21 @@ gcube 워크로드에 배포하여 환경변수만 설정하면 즉시 사용 �
 
 | 항목 | 내용 |
 |---|---|
-| 설치 버전 | `2026.3.31` |
-| 빌드 날짜 | 2026-04-01 |
+| 설치 버전 | `2026.4.1` |
+| 빌드 날짜 | 2026-04-02 |
 
 ### 주요 변경사항
 
-**주요 변경 (Breaking)**
-
-- **Nodes/exec**: remove the duplicated `nodes.run` shell wrapper from the CLI and agent `nodes` tool so node shell execution always goes through `exec host=node`, keeping node-specific capabilities on `nodes invoke` and the dedicated media/location/notify actions
-- **Plugin SDK**: deprecate the legacy provider compat subpaths plus the older bundled provider setup and channel-runtime compatibility shims, emit migration warnings, and keep the current documented `openclaw/plugin-sdk/*` entrypoints plus local `api.ts` / `runtime-api.ts` barrels as the forward path ahead of a future major-release removal
-- **Skills/install and Plugins/install**: built-in dangerous-code `critical` findings and install-time scan failures now fail closed by default, so plugin installs and gateway-backed skill dependency installs that previously succeeded may now require an explicit dangerous override such as `--dangerously-force-unsafe-install` to proceed
-- **Gateway/auth**: `trusted-proxy` now rejects mixed shared-token configs, and local-direct fallback requires the configured token instead of implicitly authenticating same-host callers
-- **Gateway/node commands**: node commands now stay disabled until node pairing is approved, so device pairing alone is no longer enough to expose declared node commands
-
 **업데이트 내용**
 
-- **ACP/plugins**: add an explicit default-off ACPX plugin-tools MCP bridge config, document the trust boundary, and harden the built-in bridge packaging/logging path so global installs and stdio MCP sessions work reliably
-- **Agents/LLM**: add a configurable idle-stream timeout for embedded runner requests so stalled model streams abort cleanly instead of hanging until the broader run timeout fires
-- **Agents/MCP**: materialize bundle MCP tools with provider-safe names (`serverName__toolName`), support optional `streamable-http` transport selection plus per-server connection timeouts, and preserve real tool results from aborted/error turns unless truncation explicitly drops them
-- **Android/notifications**: add notification-forwarding controls with package filtering, quiet hours, rate limiting, and safer picker behavior for forwarded notification events
-- **Background tasks**: turn tasks into a real shared background-run control plane instead of ACP-only bookkeeping by unifying ACP, subagent, cron, and background CLI execution under one SQLite-backed ledger, routing detached lifecycle updates through the executor seam, adding audit/maintenance/status visibility, tightening auto-cleanup and lost-run recovery, improving task awareness in internal status/tool surfaces, and clarifying the split between heartbeat/main-session automation and detached scheduled runs
-- **Background tasks**: add the first linear task flow control surface with `openclaw flows list|show|cancel`, keep manual multi-task flows separate from one-task auto-sync flows, and surface doctor recovery hints for obviously orphaned or broken flow/task linkage
-- **Channels/QQ Bot**: add QQ Bot as a bundled channel plugin with multi-account setup, SecretRef-aware credentials, slash commands, reminders, and media send/receive support
-- **Diffs**: skip unused viewer-versus-file SSR preload work so `diffs` view-only and file-only runs do less render work while keeping mode outputs aligned
+- **Tasks/chat**: add `/tasks` as a chat-native background task board for the current session, with recent task details and agent-local fallback counts when no linked tasks are visible
+- **Web search/SearXNG**: add the bundled SearXNG provider plugin for `web_search` with configurable host support
+- **Amazon Bedrock/Guardrails**: add Bedrock Guardrails support to the bundled provider
+- **macOS/Voice Wake**: add the Voice Wake option to trigger Talk Mode
+- **Feishu/comments**: add a dedicated Drive comment-event flow with comment-thread context resolution, in-thread replies, and `feishu_drive` comment actions for document collaboration workflows
+- **Gateway/webchat**: make `chat.history` text truncation configurable with `gateway.webchat.chatHistoryMaxChars` and per-request `maxChars`, while preserving silent-reply filtering and existing default payload limits
+- **Agents/default params**: add `agents.defaults.params` for global default provider parameters
+- **Agents/failover**: cap prompt-side and assistant-side same-provider auth-profile retries for rate-limit failures before cross-provider model fallback, add the `auth.cooldowns.rateLimitedProfileRotations` knob, and document the new fallback behavior
 <!-- OPENCLAW_VERSION_END -->
 
 ---
