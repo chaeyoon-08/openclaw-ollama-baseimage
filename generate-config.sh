@@ -264,7 +264,8 @@ if [ "$_HAS_AGENTS" = "true" ]; then
                     ollama: {
                         baseUrl: "http://localhost:11434",
                         apiKey:  "ollama",
-                        api:     "ollama"
+                        api:     "ollama",
+                        models:  []
                     }
                 }
             },
@@ -332,7 +333,8 @@ else
                     ollama: {
                         baseUrl: "http://localhost:11434",
                         apiKey:  "ollama",
-                        api:     "ollama"
+                        api:     "ollama",
+                        models:  []
                     }
                 }
             },
