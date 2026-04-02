@@ -135,121 +135,71 @@ curl -sf -X POST http://localhost:11434/api/pull \
 done
 log_ok "Model ready: ${OLLAMA_MODEL}"
 
-# ── 5. OpenClaw 토큰 설정 ────────────────────────────────────────────────────
-# OPENCLAW_GATEWAY_TOKEN 환경변수가 있으면 사용 (동일 워크로드 재시작 시 토큰 유지)
-# 없으면 랜덤 생성
-if [ -n "$OPENCLAW_GATEWAY_TOKEN" ]; then
-    OPENCLAW_TOKEN="$OPENCLAW_GATEWAY_TOKEN"
-    log_ok "Gateway token: using provided OPENCLAW_GATEWAY_TOKEN"
+# ── 5. 환경변수 → .env 덤프 ──────────────────────────────────────────────────
+# gcube 워크로드 환경변수를 .env 파일로 저장
+# 사용자가 나중에 .env를 직접 수정 + reload.sh로 설정 갱신 가능
+log_doing "Dumping environment variables to .env"
+ENV_FILE="/root/.openclaw/.env"
+cat > "$ENV_FILE" << ENVEOF
+# openclaw .env -- 환경변수 설정 파일
+# 수정 후 reload.sh 실행으로 반영: bash /usr/local/bin/reload.sh
+#
+# 필수
+TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+TELEGRAM_ALLOWED_USER_IDS=${TELEGRAM_ALLOWED_USER_IDS}
+OLLAMA_MODEL=${OLLAMA_MODEL}
+
+# 선택: Gateway 토큰 (미설정 시 자동 생성, 설정 시 재시작 후에도 유지)
+OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN:-}
+
+# 선택: GitHub
+GITHUB_USERNAME=${GITHUB_USERNAME:-}
+GITHUB_EMAIL=${GITHUB_EMAIL:-}
+GITHUB_TOKEN=${GITHUB_TOKEN:-}
+GITHUB_REPO_URL=${GITHUB_REPO_URL:-}
+
+# 선택: 외부 AI provider API 키 (등록하면 서브 에이전트로 사용 가능)
+ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+OPENAI_API_KEY=${OPENAI_API_KEY:-}
+GEMINI_API_KEY=${GEMINI_API_KEY:-}
+MISTRAL_API_KEY=${MISTRAL_API_KEY:-}
+DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+GROQ_API_KEY=${GROQ_API_KEY:-}
+ENVEOF
+chmod 600 "$ENV_FILE"
+log_ok ".env written: ${ENV_FILE}"
+
+# ── 6. openclaw.json 생성 (generate-config.sh 호출) ─────────────────────────
+bash /usr/local/bin/generate-config.sh
+# generate-config.sh가 export한 OPENCLAW_GATEWAY_TOKEN을 가져옴
+OPENCLAW_TOKEN=$(jq -r '.gateway.auth.token' /root/.openclaw/openclaw.json)
+
+# ── 7. 기본 workspace 초기화 ────────────────────────────────────────────────
+# /opt/openclaw-workspace/ 에 사전 탑재된 기본 파일을 workspace에 복사
+# 이미 존재하는 파일은 덮어쓰지 않음 (사용자 수정 보호)
+_WORKSPACE="/root/.openclaw/workspace"
+_DEFAULTS="/opt/openclaw-workspace"
+if [ -d "$_DEFAULTS" ]; then
+    log_doing "Initializing workspace with default files"
+    cd "$_DEFAULTS"
+    find . -type f | while read -r _file; do
+        _target="${_WORKSPACE}/${_file#./}"
+        if [ ! -f "$_target" ]; then
+            mkdir -p "$(dirname "$_target")"
+            cp "$_file" "$_target"
+            log_ok "  Created: ${_file#./}"
+        fi
+    done
+    cd /workspace
+    log_ok "Workspace initialized"
 else
-    OPENCLAW_TOKEN=$(head -c 32 /dev/urandom | base64 | tr -d '/+=' | head -c 32)
-    log_ok "Gateway token: auto-generated"
-fi
-
-# ── 6. allowFrom JSON 배열 생성 (쉼표 구분 → JSON 배열) ────────────────────
-# TELEGRAM_ALLOWED_USER_IDS="123456789,987654321" → ["123456789","987654321"]
-# Source: https://docs.openclaw.ai/channels/telegram
-#   allowFrom은 수치형 Telegram user ID 문자열만 허용 (@username 불가)
-ALLOW_FROM_JSON=$(
-    echo "$TELEGRAM_ALLOWED_USER_IDS" \
-    | tr ',' '\n' \
-    | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
-    | jq -R . \
-    | jq -s .
-)
-
-# ── 7. openclaw.json 생성 ────────────────────────────────────────────────────
-# Source: https://docs.openclaw.ai/gateway/configuration-reference
-#         https://docs.openclaw.ai/providers/ollama
-#         https://docs.openclaw.ai/channels/telegram
-log_doing "Writing OpenClaw configuration"
-mkdir -p /root/.openclaw
-
-jq -n \
-    --arg     token      "$OPENCLAW_TOKEN" \
-    --arg     bot_token  "$TELEGRAM_BOT_TOKEN" \
-    --arg     model      "$OLLAMA_MODEL" \
-    --argjson allow_from "$ALLOW_FROM_JSON" \
-    '{
-        gateway: {
-            mode: "local",
-            port: 18789,
-            bind: "lan",
-            auth: { mode: "token", token: $token },
-            controlUi: { allowedOrigins: ["*"], dangerouslyDisableDeviceAuth: true }
-        },
-        models: {
-            mode: "merge",
-            providers: {
-                ollama: {
-                    baseUrl: "http://localhost:11434",
-                    apiKey:  "ollama",
-                    api:     "ollama",
-                    models: [{
-                        id:    $model,
-                        name:  ("Ollama (" + $model + ")"),
-                        input: ["text"],
-                        cost:  { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
-                    }]
-                }
-            }
-        },
-        agents: {
-            defaults: {
-                workspace: "/root/.openclaw/workspace",
-                model: { primary: ("ollama/" + $model) }
-            }
-        },
-        channels: {
-            telegram: {
-                enabled:   true,
-                botToken:  $bot_token,
-                dmPolicy:  "allowlist",
-                allowFrom: $allow_from
-            }
-        }
-    }' > /root/.openclaw/openclaw.json
-
-log_ok "openclaw.json written"
-
-# ── 7-1. 외부 provider 등록 (gcube 환경변수 기반) ────────────────────────────
-# gcube 워크로드 환경변수에 API key가 있으면 openclaw.json providers에 자동 추가
-# 지원: ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, MISTRAL_API_KEY,
-#       DEEPSEEK_API_KEY, GROQ_API_KEY
-_EXTRA_PROVIDERS='{}'
-_add_provider() {
-    local _KEY="$1" _ID="$2" _API="$3" _URL="$4"
-    if [ -n "$_KEY" ]; then
-        _EXTRA_PROVIDERS=$(printf '%s' "$_EXTRA_PROVIDERS" | jq \
-            --arg id  "$_ID" \
-            --arg api "$_API" \
-            --arg key "$_KEY" \
-            --arg url "$_URL" \
-            '. + {($id): {api: $api, apiKey: $key, baseUrl: $url, models: []}}')
-        log_ok "Provider registered: $_ID"
-    fi
-}
-
-_add_provider "$ANTHROPIC_API_KEY" "anthropic" "anthropic-messages"      "https://api.anthropic.com"
-_add_provider "$OPENAI_API_KEY"    "openai"    "openai-responses"         "https://api.openai.com"
-_add_provider "$GEMINI_API_KEY"    "google"    "google-generative-ai"     "https://generativelanguage.googleapis.com"
-_add_provider "$MISTRAL_API_KEY"   "mistral"   "openai-completions"       "https://api.mistral.ai"
-_add_provider "$DEEPSEEK_API_KEY"  "deepseek"  "openai-completions"       "https://api.deepseek.com"
-_add_provider "$GROQ_API_KEY"      "groq"      "openai-completions"       "https://api.groq.com/openai"
-
-if [ "$_EXTRA_PROVIDERS" != '{}' ]; then
-    jq --argjson p "$_EXTRA_PROVIDERS" '.models.providers += $p' \
-        /root/.openclaw/openclaw.json > /tmp/oc_merged.json \
-        && mv /tmp/oc_merged.json /root/.openclaw/openclaw.json
-    log_ok "External providers added to openclaw.json"
-else
-    log_info "No external provider API keys set — using Ollama only"
+    log_info "No default workspace files found -- skipping"
 fi
 
 # ── 8. OpenClaw gateway 시작 ────────────────────────────────────────────────
 # Source: https://docs.openclaw.ai/cli/gateway
 log_start "Starting OpenClaw gateway"
-export OPENCLAW_GATEWAY_TOKEN="$OPENCLAW_TOKEN"
+export OPENCLAW_GATEWAY_TOKEN="${OPENCLAW_TOKEN}"
 openclaw gateway &
 OPENCLAW_PID=$!
 

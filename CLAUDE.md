@@ -40,6 +40,16 @@ gcube 워크로드 (GPU 컨테이너)
 
 ---
 
+## 구현 계획
+
+`docs/PLAN.md` 참조. 작업 중 향후 계획이 생기면 PLAN.md의 향후 계획 섹션에 추가할 것. 구현 완료 후 git commit까지 끝난 항목만 향후 계획에서 제거할 것.
+
+### 설계 문서
+
+`docs/DESIGN.md` 참조. 에이전트 구조 설계 전체 내용이 정리되어 있음.
+
+---
+
 ## 핵심 규칙
 
 - **공식 문서 확인 필수**: `spec/SPEC.md`의 출처 URL 참조. 확인되지 않은 옵션 사용 금지
@@ -89,8 +99,21 @@ log_done()   { echo -e "\033[1;32m[ DONE  ]\033[0m $1"; }
 base_image/
 ├── Dockerfile                          ← CUDA + 도구 + Ollama + OpenClaw 설치
 ├── entrypoint.sh                       ← 환경변수 기반 자동 설정 및 서비스 기동
+├── generate-config.sh                  ← .env → openclaw.json 생성 로직
+├── reload.sh                           ← 설정 갱신 + gateway 재시작
 ├── docker-compose.yml                  ← 로컬 테스트용
 ├── README.md                           ← 이미지 사양, 사용법
+├── workspace/                          ← 기본 workspace 파일 (Docker 빌드 시 탑재)
+│   ├── SOUL.md, IDENTITY.md, AGENTS.md, USER.md, TOOLS.md
+│   ├── HEARTBEAT.md, BOOTSTRAP.md, MEMORY.md
+│   ├── memory/                         ← 상세 기록 폴더
+│   └── skills/                         ← 시스템 스킬 10개 + 템플릿
+├── docs/
+│   ├── DESIGN.md                       ← 에이전트 구조 설계서
+│   └── PLAN.md                         ← 구현 계획 (향후 계획 관리)
+├── docs/confluence/
+│   ├── DEPLOY_GUIDE.md                 ← 배포 가이드 (컨플루언스용)
+│   └── REPORT.md                       ← 보고서 (컨플루언스용)
 ├── .github/workflows/docker-publish.yml ← ghcr.io 자동 빌드/push
 └── spec/
     ├── SPEC.md                         ← 기술 스펙 (출처 URL 포함)
