@@ -5,10 +5,16 @@
 # 입력: 환경변수 (직접 또는 .env에서 source)
 # 출력: /root/.openclaw/openclaw.json
 #
+# 동작:
+#   1. 기본 설정 생성 (Ollama + Telegram + 웹검색)
+#   2. 외부 provider API 키가 있으면 providers에 추가
+#   3. 외부 provider가 있으면 멀티 에이전트 + A2A 자동 구성
+#
 # References:
-#   OpenClaw config:    https://docs.openclaw.ai/gateway/configuration-reference
-#   OpenClaw Telegram:  https://docs.openclaw.ai/channels/telegram
-#   OpenClaw providers: https://docs.openclaw.ai/providers/ollama
+#   OpenClaw config:       https://docs.openclaw.ai/gateway/configuration-reference
+#   OpenClaw Telegram:     https://docs.openclaw.ai/channels/telegram
+#   OpenClaw providers:    https://docs.openclaw.ai/providers/ollama
+#   OpenClaw multi-agent:  https://docs.openclaw.ai/concepts/multi-agent
 
 set -e
 
@@ -30,7 +36,7 @@ fi
 # -- 필수 환경변수 검증 --
 [ -z "$TELEGRAM_BOT_TOKEN" ]       && log_stop "TELEGRAM_BOT_TOKEN is required"
 [ -z "$TELEGRAM_ALLOWED_USER_IDS" ] && log_stop "TELEGRAM_ALLOWED_USER_IDS is required"
-[ -z "$OLLAMA_MODEL" ]              && log_stop "OLLAMA_MODEL is required (e.g. qwen3:14b)"
+[ -z "$OLLAMA_MODEL" ]              && log_stop "OLLAMA_MODEL is required (e.g. qwen3.5:35b)"
 
 # -- Gateway 토큰 --
 if [ -n "$OPENCLAW_GATEWAY_TOKEN" ]; then
@@ -56,75 +62,15 @@ ALLOW_FROM_JSON=$(
     | jq -s .
 )
 
-# -- openclaw.json 생성 --
-# Source: https://docs.openclaw.ai/gateway/configuration-reference
-#         https://docs.openclaw.ai/providers/ollama
-log_doing "Generating openclaw.json"
-mkdir -p /root/.openclaw
-
-jq -n \
-    --arg     token      "$OPENCLAW_TOKEN" \
-    --arg     bot_token  "$TELEGRAM_BOT_TOKEN" \
-    --arg     model      "$OLLAMA_MODEL" \
-    --argjson allow_from "$ALLOW_FROM_JSON" \
-    '{
-        gateway: {
-            mode: "local",
-            port: 18789,
-            bind: "lan",
-            auth: { mode: "token", token: $token },
-            controlUi: { allowedOrigins: ["*"], dangerouslyDisableDeviceAuth: true }
-        },
-        models: {
-            mode: "merge",
-            providers: {
-                ollama: {
-                    baseUrl: "http://localhost:11434",
-                    apiKey:  "ollama",
-                    api:     "ollama",
-                    models: [{
-                        id:    $model,
-                        name:  ("Ollama (" + $model + ")"),
-                        input: ["text"],
-                        cost:  { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
-                    }]
-                }
-            }
-        },
-        tools: {
-            web: {
-                search: {
-                    enabled: true,
-                    provider: "duckduckgo",
-                    maxResults: 5,
-                    timeoutSeconds: 30
-                }
-            }
-        },
-        agents: {
-            defaults: {
-                workspace: "/root/.openclaw/workspace",
-                model: { primary: ("ollama/" + $model) }
-            }
-        },
-        channels: {
-            telegram: {
-                enabled:   true,
-                botToken:  $bot_token,
-                dmPolicy:  "allowlist",
-                allowFrom: $allow_from
-            }
-        }
-    }' > /root/.openclaw/openclaw.json
-
-log_ok "openclaw.json written"
-
-# -- 외부 provider 등록 --
-# gcube 환경변수 또는 .env에 API key가 있으면 providers에 자동 추가
-# Source: https://docs.openclaw.ai/providers
+# -- 외부 provider 감지 --
+# API 키가 있는 provider를 수집하여 멀티 에이전트 구성에 사용
 _EXTRA_PROVIDERS='{}'
+_AGENT_LIST='[]'
+_AGENT_IDS='[]'
+_HAS_EXTERNAL=false
+
 _add_provider() {
-    local _KEY="$1" _ID="$2" _API="$3" _URL="$4"
+    local _KEY="$1" _ID="$2" _API="$3" _URL="$4" _MODEL_PREFIX="$5"
     if [ -n "$_KEY" ]; then
         _EXTRA_PROVIDERS=$(printf '%s' "$_EXTRA_PROVIDERS" | jq \
             --arg id  "$_ID" \
@@ -132,17 +78,191 @@ _add_provider() {
             --arg key "$_KEY" \
             --arg url "$_URL" \
             '. + {($id): {api: $api, apiKey: $key, baseUrl: $url, models: []}}')
+
+        # 에이전트 등록 정보 추가
+        _AGENT_LIST=$(printf '%s' "$_AGENT_LIST" | jq \
+            --arg id "$_ID" \
+            --arg model_prefix "$_MODEL_PREFIX" \
+            '. + [{
+                id: $id,
+                workspace: ("/root/.openclaw/workspace-" + $id),
+                agentDir: ("/root/.openclaw/agents/" + $id)
+            }]')
+        _AGENT_IDS=$(printf '%s' "$_AGENT_IDS" | jq --arg id "$_ID" '. + [$id]')
+        _HAS_EXTERNAL=true
+
         log_ok "Provider registered: $_ID"
     fi
 }
 
-_add_provider "$ANTHROPIC_API_KEY" "anthropic" "anthropic-messages"  "https://api.anthropic.com"
-_add_provider "$OPENAI_API_KEY"    "openai"    "openai-responses"     "https://api.openai.com"
-_add_provider "$GEMINI_API_KEY"    "google"    "google-generative-ai" "https://generativelanguage.googleapis.com"
-_add_provider "$MISTRAL_API_KEY"   "mistral"   "openai-completions"   "https://api.mistral.ai"
-_add_provider "$DEEPSEEK_API_KEY"  "deepseek"  "openai-completions"   "https://api.deepseek.com"
-_add_provider "$GROQ_API_KEY"      "groq"      "openai-completions"   "https://api.groq.com/openai"
+# Source: https://docs.openclaw.ai/providers
+_add_provider "$ANTHROPIC_API_KEY" "anthropic" "anthropic-messages"  "https://api.anthropic.com"     "anthropic/"
+_add_provider "$OPENAI_API_KEY"    "openai"    "openai-responses"     "https://api.openai.com"        "openai/"
+_add_provider "$GEMINI_API_KEY"    "google"    "google-generative-ai" "https://generativelanguage.googleapis.com" "google/"
+_add_provider "$MISTRAL_API_KEY"   "mistral"   "openai-completions"   "https://api.mistral.ai"        "mistral/"
+_add_provider "$DEEPSEEK_API_KEY"  "deepseek"  "openai-completions"   "https://api.deepseek.com"      "deepseek/"
+_add_provider "$GROQ_API_KEY"      "groq"      "openai-completions"   "https://api.groq.com/openai"   "groq/"
 
+# -- openclaw.json 생성 --
+# Source: https://docs.openclaw.ai/gateway/configuration-reference
+log_doing "Generating openclaw.json"
+mkdir -p /root/.openclaw
+
+if [ "$_HAS_EXTERNAL" = "true" ]; then
+    # ── 멀티 에이전트 모드 ──
+    # main(Ollama) + 외부 provider 에이전트들
+    # Source: https://docs.openclaw.ai/concepts/multi-agent
+
+    # main 에이전트를 agent list 앞에 추가
+    _FULL_AGENT_LIST=$(printf '%s' "$_AGENT_LIST" | jq \
+        --arg model "$OLLAMA_MODEL" \
+        '[{
+            id: "main",
+            model: ("ollama/" + $model),
+            workspace: "/root/.openclaw/workspace",
+            agentDir: "/root/.openclaw/agents/main",
+            default: true
+        }] + .')
+
+    # A2A allow 목록: main + 모든 외부 에이전트
+    _A2A_ALLOW=$(printf '%s' "$_AGENT_IDS" | jq '. + ["main"]')
+
+    jq -n \
+        --arg       token      "$OPENCLAW_TOKEN" \
+        --arg       bot_token  "$TELEGRAM_BOT_TOKEN" \
+        --arg       model      "$OLLAMA_MODEL" \
+        --argjson   allow_from "$ALLOW_FROM_JSON" \
+        --argjson   agent_list "$_FULL_AGENT_LIST" \
+        --argjson   a2a_allow  "$_A2A_ALLOW" \
+        '{
+            gateway: {
+                mode: "local",
+                port: 18789,
+                bind: "lan",
+                auth: { mode: "token", token: $token },
+                controlUi: { allowedOrigins: ["*"], dangerouslyDisableDeviceAuth: true }
+            },
+            models: {
+                mode: "replace",
+                providers: {
+                    ollama: {
+                        baseUrl: "http://localhost:11434",
+                        apiKey:  "ollama",
+                        api:     "ollama",
+                        models: [{
+                            id:    $model,
+                            name:  ("Ollama (" + $model + ")"),
+                            input: ["text"],
+                            cost:  { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
+                        }]
+                    }
+                }
+            },
+            tools: {
+                web: {
+                    search: {
+                        enabled: true,
+                        provider: "duckduckgo",
+                        maxResults: 5,
+                        timeoutSeconds: 30
+                    }
+                },
+                agentToAgent: {
+                    enabled: true,
+                    allow: $a2a_allow
+                }
+            },
+            agents: {
+                defaults: {
+                    workspace: "/root/.openclaw/workspace",
+                    model: { primary: ("ollama/" + $model) }
+                },
+                list: $agent_list
+            },
+            channels: {
+                telegram: {
+                    enabled:   true,
+                    botToken:  $bot_token,
+                    dmPolicy:  "allowlist",
+                    allowFrom: $allow_from
+                }
+            }
+        }' > /root/.openclaw/openclaw.json
+
+    log_ok "Multi-agent config written (agents: main + $(printf '%s' "$_AGENT_IDS" | jq -r 'join(", ")'))"
+    log_ok "A2A enabled (allow: $(printf '%s' "$_A2A_ALLOW" | jq -r 'join(", ")'))"
+
+    # 에이전트별 workspace/agentDir 디렉터리 생성
+    printf '%s' "$_AGENT_LIST" | jq -r '.[].workspace' | while read -r _ws; do
+        mkdir -p "$_ws"
+    done
+    printf '%s' "$_AGENT_LIST" | jq -r '.[].agentDir' | while read -r _ad; do
+        mkdir -p "$_ad"
+    done
+    mkdir -p /root/.openclaw/agents/main
+    log_ok "Agent directories created"
+
+else
+    # ── 단일 에이전트 모드 ──
+    jq -n \
+        --arg     token      "$OPENCLAW_TOKEN" \
+        --arg     bot_token  "$TELEGRAM_BOT_TOKEN" \
+        --arg     model      "$OLLAMA_MODEL" \
+        --argjson allow_from "$ALLOW_FROM_JSON" \
+        '{
+            gateway: {
+                mode: "local",
+                port: 18789,
+                bind: "lan",
+                auth: { mode: "token", token: $token },
+                controlUi: { allowedOrigins: ["*"], dangerouslyDisableDeviceAuth: true }
+            },
+            models: {
+                mode: "replace",
+                providers: {
+                    ollama: {
+                        baseUrl: "http://localhost:11434",
+                        apiKey:  "ollama",
+                        api:     "ollama",
+                        models: [{
+                            id:    $model,
+                            name:  ("Ollama (" + $model + ")"),
+                            input: ["text"],
+                            cost:  { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
+                        }]
+                    }
+                }
+            },
+            tools: {
+                web: {
+                    search: {
+                        enabled: true,
+                        provider: "duckduckgo",
+                        maxResults: 5,
+                        timeoutSeconds: 30
+                    }
+                }
+            },
+            agents: {
+                defaults: {
+                    workspace: "/root/.openclaw/workspace",
+                    model: { primary: ("ollama/" + $model) }
+                }
+            },
+            channels: {
+                telegram: {
+                    enabled:   true,
+                    botToken:  $bot_token,
+                    dmPolicy:  "allowlist",
+                    allowFrom: $allow_from
+                }
+            }
+        }' > /root/.openclaw/openclaw.json
+
+    log_ok "Single-agent config written"
+fi
+
+# -- 외부 provider를 openclaw.json에 추가 --
 if [ "$_EXTRA_PROVIDERS" != '{}' ]; then
     jq --argjson p "$_EXTRA_PROVIDERS" '.models.providers += $p' \
         /root/.openclaw/openclaw.json > /tmp/oc_merged.json \
