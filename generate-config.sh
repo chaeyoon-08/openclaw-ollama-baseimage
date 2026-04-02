@@ -212,17 +212,33 @@ fi
 
 # API 키만 있고 AGENT_*가 없는 경우에도 provider별 에이전트 자동 생성
 if [ "$_HAS_AGENTS" = "false" ] && [ "$_PROVIDERS_JSON" != '{}' ]; then
+    # provider별 기본 모델 매핑
+    _get_default_model() {
+        case "$1" in
+            anthropic) echo "anthropic/claude-sonnet-4-20250514" ;;
+            openai)    echo "openai/gpt-4o" ;;
+            google)    echo "google/gemini-2.5-flash" ;;
+            mistral)   echo "mistral/mistral-large-latest" ;;
+            deepseek)  echo "deepseek/deepseek-chat" ;;
+            groq)      echo "groq/llama-3.3-70b-versatile" ;;
+            *)         echo "$1/default" ;;
+        esac
+    }
+
     for _p in $(echo "$_PROVIDERS_REGISTERED"); do
+        _default_model=$(_get_default_model "$_p")
         _AGENT_LIST=$(printf '%s' "$_AGENT_LIST" | jq \
             --arg id "$_p" \
+            --arg model "$_default_model" \
             '. + [{
                 id: $id,
+                model: $model,
                 workspace: ("/root/.openclaw/workspace-" + $id),
                 agentDir: ("/root/.openclaw/agents/" + $id)
             }]')
         _AGENT_IDS=$(printf '%s' "$_AGENT_IDS" | jq --arg id "$_p" '. + [$id]')
         _HAS_AGENTS=true
-        log_ok "Auto-created agent for provider: $_p"
+        log_ok "Auto-created agent for provider: $_p (model: $_default_model)"
     done
 fi
 
