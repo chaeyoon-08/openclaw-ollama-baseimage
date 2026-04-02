@@ -160,29 +160,7 @@ bash /usr/local/bin/generate-config.sh
 # generate-config.sh가 export한 OPENCLAW_GATEWAY_TOKEN을 가져옴
 OPENCLAW_TOKEN=$(jq -r '.gateway.auth.token' /root/.openclaw/openclaw.json)
 
-# ── 7. 기본 workspace 초기화 ────────────────────────────────────────────────
-# /opt/openclaw-workspace/ 에 사전 탑재된 기본 파일을 workspace에 복사
-# 이미 존재하는 파일은 덮어쓰지 않음 (사용자 수정 보호)
-_WORKSPACE="/root/.openclaw/workspace"
-_DEFAULTS="/opt/openclaw-workspace"
-if [ -d "$_DEFAULTS" ]; then
-    log_doing "Initializing workspace with default files"
-    cd "$_DEFAULTS"
-    find . -type f | while read -r _file; do
-        _target="${_WORKSPACE}/${_file#./}"
-        if [ ! -f "$_target" ]; then
-            mkdir -p "$(dirname "$_target")"
-            cp "$_file" "$_target"
-            log_ok "  Created: ${_file#./}"
-        fi
-    done
-    cd /workspace
-    log_ok "Workspace initialized"
-else
-    log_info "No default workspace files found -- skipping"
-fi
-
-# ── 8. OpenClaw gateway 시작 ────────────────────────────────────────────────
+# ── 7. OpenClaw gateway 시작 ────────────────────────────────────────────────
 # Source: https://docs.openclaw.ai/cli/gateway
 log_start "Starting OpenClaw gateway"
 export OPENCLAW_GATEWAY_TOKEN="${OPENCLAW_TOKEN}"

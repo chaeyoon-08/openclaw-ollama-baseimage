@@ -103,11 +103,6 @@ base_image/
 ├── reload.sh                           ← 설정 갱신 + gateway 재시작
 ├── docker-compose.yml                  ← 로컬 테스트용
 ├── README.md                           ← 이미지 사양, 사용법
-├── workspace/                          ← 기본 workspace 파일 (Docker 빌드 시 탑재)
-│   ├── SOUL.md                         ← 페르소나, 톤, 레드라인
-│   ├── AGENTS.md                       ← 운영 지침, 슬래시 명령어 안내
-│   ├── USER.md                         ← 사용자 프로필
-│   └── TOOLS.md                        ← 경로, 슬래시 명령어 레퍼런스
 ├── docs/
 │   ├── DESIGN.md                       ← 에이전트 구조 설계서
 │   └── PLAN.md                         ← 구현 계획 (향후 계획 관리)
