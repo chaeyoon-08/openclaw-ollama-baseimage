@@ -1,6 +1,9 @@
 # PVE / 독립 Docker 호스트 배포 가이드
 
-> gcube 웹 UI 없이 Proxmox VE 또는 독립 Docker 호스트에서 직접 배포할 때 사용합니다.
+> **이 문서와 `docker-compose.yml`은 현재 기획 단계의 초안입니다.**
+> 실제 환경에서의 테스트가 완료되지 않았으며, 향후 수정이 있을 수 있습니다. 참고 용도로만 활용하세요.
+
+gcube 웹 UI 없이 Proxmox VE 또는 독립 Docker 호스트에서 직접 배포할 때 사용합니다.
 
 ---
 
@@ -14,9 +17,26 @@
 
 ## 배포 방법
 
-### 1. `.env` 파일 생성
+### 1. `docker-compose.yml` 준비
 
-`pve/` 디렉터리에 `.env` 파일을 생성하고 아래 내용을 입력합니다.
+아래 중 편한 방법을 선택합니다.
+
+**방법 A — 파일 내용 복붙**
+
+`docker-compose.yml`의 내용을 복사하여 원하는 경로에 파일을 생성합니다.
+
+**방법 B — curl로 다운로드**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/chaeyoon-08/openclaw-ollama-baseimage/main/pve/docker-compose.yml \
+  -o docker-compose.yml
+```
+
+---
+
+### 2. `.env` 파일 생성
+
+`docker-compose.yml`과 같은 디렉터리에 `.env` 파일을 생성합니다.
 
 ```env
 # 필수
@@ -29,6 +49,9 @@ OPENCLAW_GATEWAY_TOKEN=my-token-1234
 ANTHROPIC_API_KEY=
 OPENAI_API_KEY=
 GEMINI_API_KEY=
+MISTRAL_API_KEY=
+DEEPSEEK_API_KEY=
+GROQ_API_KEY=
 
 # 선택 — GitHub 연동
 GITHUB_USERNAME=
@@ -37,13 +60,15 @@ GITHUB_TOKEN=
 GITHUB_REPO_URL=
 ```
 
-### 2. 컨테이너 실행
+---
+
+### 3. 컨테이너 실행
 
 ```bash
 docker compose up -d
 ```
 
-### 3. 로그 확인
+### 4. 로그 확인
 
 ```bash
 docker logs -f openclaw-bot
@@ -79,7 +104,7 @@ Control UI 접근: `http://<호스트-IP>:18789`
 
 ## GPU 설정
 
-`docker-compose.yml`의 `deploy.resources.reservations.devices.count`를 조정합니다.
+`docker-compose.yml`의 `count` 값으로 사용할 GPU 수를 지정합니다.
 
 ```yaml
 devices:
