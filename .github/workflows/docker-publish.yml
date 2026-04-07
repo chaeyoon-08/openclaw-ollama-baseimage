@@ -1,12 +1,14 @@
 # .github/workflows/docker-publish.yml
 #
 # Docker 이미지를 빌드하여 GitHub Container Registry (ghcr.io) 에 push
-# 브랜치별 다른 이미지 이름으로 빌드:
-#   main                    → ghcr.io/<owner>/openclaw-bot
-#   feature/agent-structure → ghcr.io/<owner>/openclaw-bot-agent
+# 브랜치별 이미지 이름 및 태그:
+#   main        → ghcr.io/<owner>/openclaw-bot          :latest, :YYYY.MM.DD, :sha-<7자>
+#   skills      → ghcr.io/<owner>/openclaw-bot-skills   :skills, :skills-YYYY.MM.DD, :sha-<7자>
+#   multi-agent → ghcr.io/<owner>/openclaw-bot-multi    :multi-agent, :multi-agent-YYYY.MM.DD, :sha-<7자>
+#   agent-kit   → ghcr.io/<owner>/openclaw-bot-agentkit :agent-kit, :agent-kit-YYYY.MM.DD, :sha-<7자>
 #
 # References:
-#   ghcr.io 인증:           https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry
+#   ghcr.io 인증:             https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry
 #   docker/build-push-action: https://github.com/docker/build-push-action
 #   docker/metadata-action:   https://github.com/docker/metadata-action
 #
@@ -23,9 +25,9 @@ on:
   push:
     branches:
       - main
-      - feature/agent-structure
-    tags:
-      - "v*.*.*"
+      - skills
+      - multi-agent
+      - agent-kit
   workflow_dispatch:
 
 env:
@@ -43,43 +45,47 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Set image name by branch
+      - name: Set image name and tag prefix by branch
         id: image
         run: |
           OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           BRANCH="${GITHUB_REF#refs/heads/}"
+          BUILD_DATE=$(date '+%Y.%m.%d')
 
           case "$BRANCH" in
             main)
-              echo "name=${OWNER}/openclaw-bot" >> "$GITHUB_OUTPUT"
+              IMAGE_NAME="${OWNER}/openclaw-bot"
+              TAG_PREFIX=""
               ;;
-            feature/agent-structure)
-              echo "name=${OWNER}/openclaw-bot-agent" >> "$GITHUB_OUTPUT"
+            skills)
+              IMAGE_NAME="${OWNER}/openclaw-bot-skills"
+              TAG_PREFIX="skills"
+              ;;
+            multi-agent)
+              IMAGE_NAME="${OWNER}/openclaw-bot-multi"
+              TAG_PREFIX="multi-agent"
+              ;;
+            agent-kit)
+              IMAGE_NAME="${OWNER}/openclaw-bot-agentkit"
+              TAG_PREFIX="agent-kit"
               ;;
             *)
-              echo "name=${OWNER}/openclaw-bot" >> "$GITHUB_OUTPUT"
+              IMAGE_NAME="${OWNER}/openclaw-bot"
+              TAG_PREFIX=""
               ;;
           esac
+
+          echo "name=${IMAGE_NAME}" >> "$GITHUB_OUTPUT"
+          echo "prefix=${TAG_PREFIX}" >> "$GITHUB_OUTPUT"
+          echo "date=${BUILD_DATE}" >> "$GITHUB_OUTPUT"
 
       - name: Update OpenClaw version in README
         run: |
           OPENCLAW_VERSION=$(npm view openclaw version)
           BUILD_DATE=$(date '+%Y-%m-%d')
 
-          # openclaw GitHub 릴리즈 노트 조회 (v 접두사 없는 경우 → 있는 경우 순으로 시도)
-          RELEASE_BODY=$(curl -sf \
-            "https://api.github.com/repos/openclaw/openclaw/releases/tags/${OPENCLAW_VERSION}" \
-            | python3 -c "import json,sys; r=json.load(sys.stdin); print(r.get('body',''))" 2>/dev/null || true)
-
-          if [ -z "$RELEASE_BODY" ]; then
-            RELEASE_BODY=$(curl -sf \
-              "https://api.github.com/repos/openclaw/openclaw/releases/tags/v${OPENCLAW_VERSION}" \
-              | python3 -c "import json,sys; r=json.load(sys.stdin); print(r.get('body',''))" 2>/dev/null || true)
-          fi
-
           OPENCLAW_VERSION="$OPENCLAW_VERSION" \
           BUILD_DATE="$BUILD_DATE" \
-          RELEASE_BODY="$RELEASE_BODY" \
           python3 .github/scripts/update_readme.py
 
       - name: Commit updated README
@@ -100,20 +106,23 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v6
-        with:
-          images: ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}
-          tags: |
-            type=ref,event=branch
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}},enable=${{ !startsWith(github.ref, 'refs/tags/v0.') }}
-            type=sha
-            type=raw,value=latest,enable={{is_default_branch}}
-          flavor: |
-            latest=false
+      - name: Build tags
+        id: tags
+        run: |
+          REGISTRY="${{ env.REGISTRY }}"
+          IMAGE="${REGISTRY}/${{ steps.image.outputs.name }}"
+          PREFIX="${{ steps.image.outputs.prefix }}"
+          DATE="${{ steps.image.outputs.date }}"
+          SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+
+          if [ -z "$PREFIX" ]; then
+            # main 브랜치
+            TAGS="${IMAGE}:latest,${IMAGE}:${DATE},${IMAGE}:sha-${SHA}"
+          else
+            TAGS="${IMAGE}:${PREFIX},${IMAGE}:${PREFIX}-${DATE},${IMAGE}:sha-${SHA}"
+          fi
+
+          echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push Docker image
         id: build
@@ -121,8 +130,7 @@ jobs:
         with:
           context: .
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.tags.outputs.tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
