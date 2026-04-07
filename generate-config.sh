@@ -74,7 +74,7 @@ _try_register_provider() {
             --arg api "$_api" \
             --arg key "$_key" \
             --arg url "$_url" \
-            '. + {($id): {api: $api, apiKey: $key, baseUrl: $url}}')
+            '. + {($id): {api: $api, apiKey: $key, baseUrl: $url, models: []}}')
         log_ok "Provider registered: $_id"
     fi
 }
@@ -109,7 +109,8 @@ jq -n \
                 ollama: {
                     baseUrl: "http://localhost:11434",
                     apiKey:  "ollama",
-                    api:     "ollama"
+                    api:     "ollama",
+                    models:  []
                 }
             }
         },
