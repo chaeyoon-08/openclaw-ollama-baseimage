@@ -1,7 +1,7 @@
 # openclaw-base
 
 OpenClaw + Ollama 기반 Telegram AI 비서 컨테이너 이미지.
-환경변수만 설정하면 즉시 사용 가능.
+gcube 워크로드에 배포 후 환경변수만 설정하면 즉시 사용 가능.
 
 ---
 
@@ -10,7 +10,11 @@ OpenClaw + Ollama 기반 Telegram AI 비서 컨테이너 이미지.
 | 브랜치 | 이미지 | 설명 |
 |---|---|---|
 | `main` | `ghcr.io/chaeyoon-08/openclaw-bot:latest` | 기본 구성 — 로컬 LLM + 외부 모델 전환 |
-| `feature/agent-structure` | `ghcr.io/chaeyoon-08/openclaw-bot-agent:latest` | 에이전트 구조화 + 스킬 + A2A 올인원 |
+| `skills` | `ghcr.io/chaeyoon-08/openclaw-bot-skills:latest` | 기본 구성 + 에이전트 성격 부여 + 빌트인 스킬 |
+| `multi-agent` | `ghcr.io/chaeyoon-08/openclaw-bot-multi:latest` | 기본 구성 + 멀티 에이전트 + A2A 오케스트레이션 |
+| `agent-kit` | `ghcr.io/chaeyoon-08/openclaw-bot-agentkit:latest` | skills + multi-agent 올인원 패키지 |
+
+> `skills`, `multi-agent`, `agent-kit` 브랜치는 현재 개발 중입니다.
 
 ---
 
@@ -28,18 +32,18 @@ OpenClaw + Ollama 기반 Telegram AI 비서 컨테이너 이미지.
 
 **주요 변경 (Breaking)**
 
-- **Config**: remove legacy public config aliases such as `talk.voiceId` / `talk.apiKey`, `agents.*.sandbox.perSession`, `browser.ssrfPolicy.allowPrivateNetwork`, `hooks.internal.handlers`, and channel/group/room `allow` toggles in favor of the canonical public paths and `enabled`, while keeping load-time compatibility and `openclaw doctor --fix` migration support for existing configs
+- **설정**: `talk.voiceId`, `talk.apiKey`, `agents.*.sandbox.perSession` 등 레거시 설정 별칭 제거. 기존 설정은 `openclaw doctor --fix`로 마이그레이션 가능
 
 **업데이트 내용**
 
-- **Agents/video generation**: add the built-in `video_generate` tool so agents can create videos through configured providers and return the generated media directly in the reply
-- **Agents/music generation**: ignore unsupported optional hints such as `durationSeconds` with a warning instead of hard-failing requests on providers like Google Lyria
-- **Providers/ComfyUI**: add a bundled `comfy` workflow media plugin for local ComfyUI and Comfy Cloud workflows, including shared `image_generate`, `video_generate`, and workflow-backed `music_generate` support, with prompt injection, optional reference-image upload, live tests, and output download
-- **Tools/music generation**: add the built-in `music_generate` tool with bundled Google (Lyria) and MiniMax providers plus workflow-backed Comfy support, including async task tracking and follow-up delivery of finished audio
-- **Providers**: add bundled Qwen, Fireworks AI, and StepFun providers, plus MiniMax TTS, Ollama Web Search, and MiniMax Search integrations for chat, speech, and search workflows
-- **Providers/Amazon Bedrock**: add bundled Mantle support plus inference-profile discovery and automatic request-region injection so Bedrock-hosted Claude, GPT-OSS, Qwen, Kimi, GLM, and similar routes work with less manual setup
-- **Control UI/multilingual**: add localized control UI support for Simplified Chinese, Traditional Chinese, Brazilian Portuguese, German, Spanish, Japanese, Korean, French, Turkish, Indonesian, Polish, and Ukrainian
-- **Plugins**: add plugin-config TUI prompts to guided onboarding/setup flows, and add `openclaw plugins install --force` so existing plugin and hook-pack targets can be replaced without using the dangerous-code override flag
+- **에이전트/비디오 생성**: 에이전트가 `video_generate` 도구로 영상을 생성하고 답변에 직접 포함 가능
+- **에이전트/음악 생성**: Google Lyria 등 일부 provider에서 지원하지 않는 옵션(`durationSeconds` 등) 전달 시 실패 대신 경고 처리
+- **Provider/ComfyUI**: 로컬 ComfyUI 및 Comfy Cloud 워크플로우 지원 플러그인 추가 (`image_generate`, `video_generate`, `music_generate`)
+- **도구/음악 생성**: `music_generate` 빌트인 도구 추가. Google Lyria, MiniMax provider 및 Comfy 워크플로우 지원
+- **Provider 추가**: Qwen, Fireworks AI, StepFun, MiniMax TTS, Ollama Web Search, MiniMax Search 통합
+- **Provider/Amazon Bedrock**: Mantle 지원 및 추론 프로파일 자동 감지 추가. Claude, GPT-OSS, Qwen, Kimi 등 Bedrock 호스팅 모델 설정 간소화
+- **Control UI/다국어**: 한국어, 일본어, 중국어(간체/번체), 독일어, 스페인어, 프랑스어 등 12개 언어 UI 지원
+- **플러그인**: 온보딩/설정 플로우에 플러그인 설정 TUI 추가. `openclaw plugins install --force` 옵션 추가
 <!-- OPENCLAW_VERSION_END -->
 
 ---
@@ -74,18 +78,19 @@ OpenClaw + Ollama 기반 Telegram AI 비서 컨테이너 이미지.
 
 | 브랜치 | 이미지 태그 |
 |---|---|
-| `main` | `:latest`, `:main`, `:sha-<7자>` |
-| `feature/agent-structure` | `:feature-agent-structure`, `:sha-<7자>` |
-| `v*.*.*` 태그 | `:1.2.3`, `:1.2`, `:1`, `:latest` |
+| `main` | `:latest`, `:YYYY.MM.DD`, `:sha-<7자>` |
+| `skills` | `:skills`, `:skills-YYYY.MM.DD`, `:sha-<7자>` |
+| `multi-agent` | `:multi-agent`, `:multi-agent-YYYY.MM.DD`, `:sha-<7자>` |
+| `agent-kit` | `:agent-kit`, `:agent-kit-YYYY.MM.DD`, `:sha-<7자>` |
 
 별도 시크릿 설정 불필요 — `GITHUB_TOKEN`으로 ghcr.io 인증.
 빌드 완료 시 OpenClaw 최신 버전 정보가 상단 "버전 정보" 섹션에 자동 반영됩니다.
 
 ---
 
-## main 브랜치
+## openclaw-bot
 
-> 이미지: `ghcr.io/chaeyoon-08/openclaw-bot:latest`
+> 브랜치: `main` | 이미지: `ghcr.io/chaeyoon-08/openclaw-bot:latest`
 
 OpenClaw 기본 기능만 사용하는 최소 구성입니다. 추가 설정 없이 바로 Telegram 봇으로 사용할 수 있습니다.
 
@@ -110,8 +115,8 @@ OpenClaw 기본 기능만 사용하는 최소 구성입니다. 추가 설정 없
         Telegram 사용자
 ```
 
-- Telegram long-polling 방식 → 인바운드 포트 개방 불필요
-- 외부 AI provider는 API key 환경변수 설정만으로 자동 등록
+- Telegram long-polling 방식 사용 — 컨테이너가 Telegram 서버에 요청을 보내는 구조이므로 gcube에서 인바운드 포트를 별도로 열 필요 없음
+- 외부 AI provider는 API key 환경변수 설정만으로 자동 등록 — 설정 파일을 직접 수정할 필요 없음
 
 ### 환경변수
 
@@ -119,41 +124,31 @@ OpenClaw 기본 기능만 사용하는 최소 구성입니다. 추가 설정 없
 
 | 변수 | 예시 | 설명 |
 |---|---|---|
-| `TELEGRAM_BOT_TOKEN` | `123456:ABC-DEF...` | [@BotFather](https://t.me/BotFather) 에서 발급 |
-| `TELEGRAM_ALLOWED_USER_IDS` | `123456789` | 봇을 사용할 Telegram 수치형 User ID (쉼표로 여러 명) |
-| `OLLAMA_MODEL` | `qwen3.5:9b` | 기본 Ollama 모델. **반드시 태그 포함** |
+| `TELEGRAM_BOT_TOKEN` | `123456:ABC-DEF...` | [@BotFather](https://t.me/BotFather) 에서 발급한 봇 토큰 |
+| `TELEGRAM_ALLOWED_USER_IDS` | `123456789` | 봇 사용을 허용할 Telegram 수치형 User ID. 쉼표로 여러 명 가능 (`123,456`) |
+| `OLLAMA_MODEL` | `qwen3.5:9b` | 기본으로 사용할 Ollama 모델. **반드시 태그 포함** (예: `:9b`, `:35b`) |
+| `OPENCLAW_GATEWAY_TOKEN` | `my-token-1234` | Control UI 및 gateway 연결 토큰. **재시작 후에도 동일한 값으로 고정 필요** — 변경 시 Telegram 연동이 끊길 수 있음 |
 
 > Ollama 모델 태그 확인: https://ollama.com/library
-
-**선택 — Control UI**
-
-| 변수 | 예시 | 설명 |
-|---|---|---|
-| `OPENCLAW_GATEWAY_TOKEN` | `my-token` | 토큰 고정. 미설정 시 재시작마다 새 토큰 생성 |
 
 **선택 — 외부 AI provider**
 
 | 변수 | 설명 |
 |---|---|
-| `ANTHROPIC_API_KEY` | Anthropic Claude |
-| `OPENAI_API_KEY` | OpenAI GPT |
-| `GEMINI_API_KEY` | Google Gemini |
-| `MISTRAL_API_KEY` | Mistral |
-| `DEEPSEEK_API_KEY` | DeepSeek |
-| `GROQ_API_KEY` | Groq |
+| `ANTHROPIC_API_KEY` | Anthropic Claude 모델 사용 시 설정. 설정 시 `/model`에서 anthropic provider 선택 가능 |
+| `OPENAI_API_KEY` | OpenAI GPT 모델 사용 시 설정 |
+| `GEMINI_API_KEY` | Google Gemini 모델 사용 시 설정 |
+| `MISTRAL_API_KEY` | Mistral 모델 사용 시 설정 |
+| `DEEPSEEK_API_KEY` | DeepSeek 모델 사용 시 설정 |
+| `GROQ_API_KEY` | Groq 모델 사용 시 설정 |
+
+> **주의**: `/model` 목록에는 OpenClaw 내장 카탈로그의 모든 provider가 표시되지만, 실제로 사용 가능한 것은 **API key를 환경변수로 설정한 provider만**입니다. API key가 없는 provider를 선택하면 기본 Ollama 모델로 자동 폴백됩니다.
 
 **선택 — GitHub 연동**
 
 | 변수 | 설명 |
 |---|---|
-| `GITHUB_USERNAME` | git config user.name (`GITHUB_EMAIL`과 함께 있어야 활성화) |
+| `GITHUB_USERNAME` | git config user.name. `GITHUB_EMAIL`과 함께 설정해야 GitHub 연동 활성화 |
 | `GITHUB_EMAIL` | git config user.email |
-| `GITHUB_TOKEN` | GitHub Personal Access Token |
-| `GITHUB_REPO_URL` | 시작 시 `/workspace`에 클론할 repo URL |
-
----
-
-## 참고
-
-- OpenClaw 문서: https://docs.openclaw.ai
-- Ollama 모델 목록: https://ollama.com/library
+| `GITHUB_TOKEN` | GitHub Personal Access Token. private repo 접근 또는 git push 시 필요 |
+| `GITHUB_REPO_URL` | 컨테이너 시작 시 `/workspace`에 자동 클론할 repo URL |
