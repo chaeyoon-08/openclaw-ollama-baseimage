@@ -61,7 +61,7 @@ gcube 콘솔 → **Workloads** → **New Workload**
 ### 2-2. 이미지 입력
 
 ```
-ghcr.io/chaeyoon-08/openclaw-ollama-baseimage:latest
+ghcr.io/chaeyoon-08/openclaw-bot:latest
 ```
 
 > 이미지가 공개 설정이 되어 있지 않으면 pull 오류가 발생합니다.
@@ -272,3 +272,4 @@ inference compute: no GPU found
 | OpenClaw 공식 문서 | https://docs.openclaw.ai |
 | Ollama 모델 라이브러리 | https://ollama.com/library |
 | GitHub 저장소 | https://github.com/chaeyoon-08/openclaw-ollama-baseimage |
+| 컨테이너 이미지 (main) | `ghcr.io/chaeyoon-08/openclaw-bot:latest` |
