@@ -56,6 +56,8 @@ RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
 # tar 방식 사용: install.sh는 systemd 서비스까지 설치하므로 컨테이너에 부적합
 # 파이프 스트림에서 tar의 zst 자동 감지가 불안정하므로 파일로 받은 뒤 명시적 해제
 # → /usr/bin/ollama 에 바이너리, /usr/lib/ollama/ 에 GPU 라이브러리 설치됨
+# 캐시 무효화용 ARG 추가: 버전 업데이트용
+ARG OLLAMA_VERSION=latest
 RUN curl -fsSL https://ollama.com/download/ollama-linux-amd64.tar.zst \
         -o /tmp/ollama.tar.zst \
     && zstd -d /tmp/ollama.tar.zst --stdout | tar x -C /usr \
