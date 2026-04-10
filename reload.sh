@@ -19,7 +19,7 @@ log_warn()   { echo -e "\033[1;33m[ WARN  ]\033[0m $1"; }
 log_error()  { echo -e "\033[0;31m[ ERROR ]\033[0m $1"; }
 log_done()   { echo -e "\033[1;32m[ DONE  ]\033[0m $1"; }
 
-ENV_FILE="/root/.openclaw/.env"
+ENV_FILE="/home/node/.openclaw/.env"
 
 log_start "Reloading OpenClaw configuration"
 

@@ -1,18 +1,25 @@
 #!/bin/bash
-# entrypoint.sh — openclaw-ollama 컨테이너 자동 설정 스크립트
+# entrypoint.sh — openclaw multi-agent 컨테이너 자동 설정 스크립트
 #
 # References:
 #   Ollama serve:            https://docs.ollama.com/linux
 #   OpenClaw config:         https://docs.openclaw.ai/gateway/configuration-reference
 #   OpenClaw Telegram:       https://docs.openclaw.ai/channels/telegram
 #   OpenClaw gateway CLI:    https://docs.openclaw.ai/cli/gateway
+#   gosu (user switch):      https://github.com/tianon/gosu
 #
 # 환경변수:
-#   필수: TELEGRAM_BOT_TOKEN, TELEGRAM_ALLOWED_USER_IDS, OLLAMA_MODEL
-#   선택: GITHUB_USERNAME, GITHUB_EMAIL, GITHUB_TOKEN, GITHUB_REPO_URL
-#         STORAGE_PATH (클라우드 저장소 마운트 경로, 기본값: /mnt/storage)
+#   필수: TELEGRAM_BOT_TOKEN, TELEGRAM_ALLOWED_USER_IDS, ORCHESTRATOR_MODEL
+#   선택: WORKER_MODEL, MODEL_API_KEY, NOTEBOOKLM_HOME
+#         GITHUB_USERNAME, GITHUB_EMAIL, GITHUB_TOKEN, GITHUB_REPO_URL
 #
-#   GitHub 관련 변수는 모두 선택. GITHUB_USERNAME + GITHUB_EMAIL 이 없으면 GitHub 설정 전체 스킵.
+#   ORCHESTRATOR_MODEL 형식: provider/model[:tag]
+#     ollama/qwen3:14b            → 로컬 Ollama (무료)
+#     anthropic/claude-sonnet-4-6 → Anthropic API (유료)
+#
+#   요금 방어 규칙:
+#     ORCHESTRATOR가 유료 provider이면 WORKER_MODEL은 반드시 ollama/ 여야 함.
+#     미설정이거나 유료 모델이면 컨테이너 기동을 중단함.
 
 set -e
 
@@ -29,25 +36,55 @@ log_done()   { echo -e "\033[1;32m[ DONE  ]\033[0m $1"; }
 # ── 1. 필수 환경변수 검증 ────────────────────────────────────────────────────
 log_start "Validating environment variables"
 
-[ -z "$TELEGRAM_BOT_TOKEN" ]       && log_stop "TELEGRAM_BOT_TOKEN is required"
-[ -z "$TELEGRAM_ALLOWED_USER_IDS" ] && log_stop "TELEGRAM_ALLOWED_USER_IDS is required (comma-separated numeric Telegram user IDs)"
-[ -z "$OLLAMA_MODEL" ]              && log_stop "OLLAMA_MODEL is required (e.g. qwen3:14b)"
+# 하위 호환: OLLAMA_MODEL → ORCHESTRATOR_MODEL 자동 변환
+if [ -z "$ORCHESTRATOR_MODEL" ] && [ -n "$OLLAMA_MODEL" ]; then
+    export ORCHESTRATOR_MODEL="ollama/${OLLAMA_MODEL}"
+    log_warn "OLLAMA_MODEL is deprecated. Auto-converted: ORCHESTRATOR_MODEL=${ORCHESTRATOR_MODEL}"
+fi
+
+[ -z "$TELEGRAM_BOT_TOKEN" ]        && log_stop "TELEGRAM_BOT_TOKEN is required"
+[ -z "$TELEGRAM_ALLOWED_USER_IDS" ] && log_stop "TELEGRAM_ALLOWED_USER_IDS is required"
+[ -z "$ORCHESTRATOR_MODEL" ]        && log_stop "ORCHESTRATOR_MODEL is required (e.g. ollama/qwen3:14b or anthropic/claude-sonnet-4-6)"
+
+# ── Provider 감지 ──────────────────────────────────────────────────────────
+ORCH_PROVIDER=$(echo "$ORCHESTRATOR_MODEL" | cut -d'/' -f1)
+WORK_MODEL="${WORKER_MODEL:-$ORCHESTRATOR_MODEL}"
+WORK_PROVIDER=$(echo "$WORK_MODEL" | cut -d'/' -f1)
 
 log_ok "Required variables present"
-log_ok "  OLLAMA_MODEL             = ${OLLAMA_MODEL}"
+log_ok "  ORCHESTRATOR_MODEL        = ${ORCHESTRATOR_MODEL}"
+log_ok "  WORKER_MODEL              = ${WORK_MODEL}"
 log_ok "  TELEGRAM_ALLOWED_USER_IDS = ${TELEGRAM_ALLOWED_USER_IDS}"
 
+# ── 요금 폭탄 방어: 유료 Orchestrator + 비-Ollama Worker 조합 차단 ──────────
+# cron/heartbeat 등 백그라운드 작업이 WORKER_MODEL을 사용하므로
+# 유료 provider 환경에서는 반드시 Ollama로 강제해야 함
+if [ "$ORCH_PROVIDER" != "ollama" ]; then
+    if [ "$WORK_PROVIDER" != "ollama" ]; then
+        log_stop "ORCHESTRATOR_MODEL is a paid provider but WORKER_MODEL is not set to an Ollama model.
+          Background/cron tasks would incur API costs.
+          Set WORKER_MODEL=ollama/<model>:<tag> to continue."
+    fi
+    # 유료 provider API 키 등록 여부 확인
+    echo "$MODEL_API_KEY" | tr ',' '\n' | grep -q "^${ORCH_PROVIDER}/" \
+        || log_stop "ORCHESTRATOR_MODEL uses provider '${ORCH_PROVIDER}' but no matching MODEL_API_KEY entry found.
+          Add MODEL_API_KEY=${ORCH_PROVIDER}/<your-api-key>"
+fi
+
+# Ollama 필요 여부 판단 (ORCHESTRATOR 또는 WORKER 중 하나라도 ollama이면 시작)
+NEEDS_OLLAMA=false
+[ "$ORCH_PROVIDER" = "ollama" ] && NEEDS_OLLAMA=true
+[ "$WORK_PROVIDER" = "ollama" ] && NEEDS_OLLAMA=true
+
 # ── 2. GitHub 설정 (선택) ────────────────────────────────────────────────────
-# GITHUB_USERNAME + GITHUB_EMAIL 이 모두 있을 때만 실행. 없으면 전체 스킵.
+# GITHUB_USERNAME + GITHUB_EMAIL 이 모두 있을 때만 실행
 if [ -n "$GITHUB_USERNAME" ] && [ -n "$GITHUB_EMAIL" ]; then
     log_start "Configuring GitHub"
 
-    # git 사용자 정보
     git config --global user.name  "$GITHUB_USERNAME"
     git config --global user.email "$GITHUB_EMAIL"
     log_ok "git user: ${GITHUB_USERNAME} <${GITHUB_EMAIL}>"
 
-    # 인증 토큰 (선택)
     if [ -n "$GITHUB_TOKEN" ]; then
         git config --global credential.helper store
         echo "https://${GITHUB_USERNAME}:${GITHUB_TOKEN}@github.com" \
@@ -58,8 +95,6 @@ if [ -n "$GITHUB_USERNAME" ] && [ -n "$GITHUB_EMAIL" ]; then
         log_info "GITHUB_TOKEN not set — git push will require manual auth"
     fi
 
-    # 원격 repo 클론 (선택)
-    # GITHUB_REPO_URL 이 있으면 /workspace 에 클론
     if [ -n "$GITHUB_REPO_URL" ]; then
         log_doing "Cloning repo: ${GITHUB_REPO_URL}"
         if [ -d "/workspace/.git" ]; then
@@ -72,61 +107,115 @@ if [ -n "$GITHUB_USERNAME" ] && [ -n "$GITHUB_EMAIL" ]; then
         log_info "GITHUB_REPO_URL not set — skipping clone"
     fi
 else
-    log_info "GITHUB_USERNAME / GITHUB_EMAIL not set — skipping GitHub setup (optional)"
+    log_info "GITHUB_USERNAME / GITHUB_EMAIL not set — skipping GitHub setup"
 fi
 
-# ── 3. Ollama 서비스 시작 ────────────────────────────────────────────────────
-log_start "Starting Ollama service"
-ollama serve &
-OLLAMA_PID=$!
+# ── 3. Ollama 서비스 시작 (필요 시만) ───────────────────────────────────────
+if [ "$NEEDS_OLLAMA" = "true" ]; then
+    log_start "Starting Ollama service"
+    ollama serve &
+    OLLAMA_PID=$!
 
-log_doing "Waiting for Ollama API..."
-RETRY=0
-until curl -sf http://localhost:11434/ > /dev/null 2>&1; do
-    sleep 1
-    RETRY=$((RETRY + 1))
-    [ $RETRY -ge 60 ] && log_stop "Ollama did not start within 60 seconds"
-done
-log_ok "Ollama is ready"
+    log_doing "Waiting for Ollama API..."
+    RETRY=0
+    until curl -sf http://localhost:11434/ > /dev/null 2>&1; do
+        sleep 1
+        RETRY=$((RETRY + 1))
+        [ $RETRY -ge 60 ] && log_stop "Ollama did not start within 60 seconds"
+    done
+    log_ok "Ollama is ready"
 
-# ── 4. Ollama 모델 다운로드 ──────────────────────────────────────────────────
-# 주의: OLLAMA_MODEL에 반드시 태그를 포함할 것 (예: qwen3:14b)
-#       태그 없이 지정하면 :latest 로 시도하며, :latest 가 없는 모델은 오류 발생
-#
-# CLI 방식 대신 REST API(stream: true) 사용 이유:
-#   CLI는 non-TTY 환경에서 진행바 \r을 줄바꿈으로 출력 → 로그 수천 줄 발생
-#   API 스트리밍은 JSON 한 줄씩 수신 → 10% 단위 필터링으로 간결한 진행 로그 출력
-# Source: https://github.com/ollama/ollama/blob/main/docs/api.md#pull-a-model
-log_doing "Pulling Ollama model: ${OLLAMA_MODEL}"
-_LAST_BUCKET=-1
-curl -sf -X POST http://localhost:11434/api/pull \
-    -d "{\"name\":\"${OLLAMA_MODEL}\"}" \
-| while IFS= read -r line; do
-    STATUS=$(printf '%s' "$line" | jq -r '.status    // empty' 2>/dev/null)
-    TOTAL=$( printf '%s' "$line" | jq -r '.total     // 0'     2>/dev/null)
-    DONE=$(  printf '%s' "$line" | jq -r '.completed // 0'     2>/dev/null)
-    if [ "${TOTAL:-0}" -gt 0 ] 2>/dev/null; then
-        PCT=$(( DONE * 100 / TOTAL ))
-        BUCKET=$(( PCT / 10 * 10 ))
-        if [ "$BUCKET" -ne "$_LAST_BUCKET" ]; then
-            _LAST_BUCKET=$BUCKET
-            log_doing "  ${STATUS}: ${BUCKET}%"
-        fi
-    elif [ -n "$STATUS" ]; then
-        case "$STATUS" in
-            "pulling manifest"|"verifying sha256 digest"|"writing manifest"|"success")
-                log_doing "  ${STATUS}";;
-        esac
+    # ── 4. Ollama 모델 다운로드 ──────────────────────────────────────────────
+    # CLI 방식 대신 REST API(stream: true) 사용 이유:
+    #   CLI는 non-TTY 환경에서 진행바 \r을 줄바꿈으로 출력 → 로그 수천 줄 발생
+    #   API 스트리밍은 JSON 한 줄씩 수신 → 10% 단위 필터링으로 간결한 로그 출력
+    # Source: https://github.com/ollama/ollama/blob/main/docs/api.md#pull-a-model
+    _pull_model() {
+        local _model="$1"
+        log_doing "Pulling Ollama model: ${_model}"
+        _LAST_BUCKET=-1
+        curl -sf -X POST http://localhost:11434/api/pull \
+            -d "{\"name\":\"${_model}\"}" \
+        | while IFS= read -r line; do
+            STATUS=$(printf '%s' "$line" | jq -r '.status    // empty' 2>/dev/null)
+            TOTAL=$( printf '%s' "$line" | jq -r '.total     // 0'     2>/dev/null)
+            DONE=$(  printf '%s' "$line" | jq -r '.completed // 0'     2>/dev/null)
+            if [ "${TOTAL:-0}" -gt 0 ] 2>/dev/null; then
+                PCT=$(( DONE * 100 / TOTAL ))
+                BUCKET=$(( PCT / 10 * 10 ))
+                if [ "$BUCKET" -ne "$_LAST_BUCKET" ]; then
+                    _LAST_BUCKET=$BUCKET
+                    log_doing "  ${STATUS}: ${BUCKET}%"
+                fi
+            elif [ -n "$STATUS" ]; then
+                case "$STATUS" in
+                    "pulling manifest"|"verifying sha256 digest"|"writing manifest"|"success")
+                        log_doing "  ${STATUS}";;
+                esac
+            fi
+        done
+        log_ok "Model ready: ${_model}"
+    }
+
+    # Orchestrator 모델 pull
+    ORCH_MODEL_NAME=$(echo "$ORCHESTRATOR_MODEL" | cut -d'/' -f2-)
+    _pull_model "$ORCH_MODEL_NAME"
+
+    # Worker 모델 pull (Orchestrator와 다를 때만)
+    if [ "$WORK_PROVIDER" = "ollama" ] && [ "$WORK_MODEL" != "$ORCHESTRATOR_MODEL" ]; then
+        WORK_MODEL_NAME=$(echo "$WORK_MODEL" | cut -d'/' -f2-)
+        _pull_model "$WORK_MODEL_NAME"
     fi
-done
-log_ok "Model ready: ${OLLAMA_MODEL}"
+else
+    log_info "Ollama not required — skipping Ollama start"
+fi
 
+# ── 5. node 사용자 디렉터리 권한 설정 ───────────────────────────────────────
+# root 단계에서 먼저 수행 (gosu 이후에는 chown 불가)
+log_start "Setting up node user environment"
 
-# ── 5. 환경변수 → .env 덤프 ──────────────────────────────────────────────────
-# gcube 워크로드 환경변수를 .env 파일로 저장
+chown -R node:node /home/node/.openclaw
+chown -R node:node /home/node/.notebooklm 2>/dev/null || true
+
+# NOTEBOOKLM_HOME 마운트 경로 처리
+NLM_HOME="${NOTEBOOKLM_HOME:-/mnt/notebooklm}"
+export NOTEBOOKLM_HOME="$NLM_HOME"
+
+if [ -d "$NLM_HOME" ]; then
+    chown -R node:node "$NLM_HOME" 2>/dev/null || true
+    log_ok "NOTEBOOKLM_HOME: ${NLM_HOME}"
+else
+    log_warn "NOTEBOOKLM_HOME path does not exist: ${NLM_HOME}"
+    log_warn "  NotebookLM MCP will not function until the path is mounted."
+fi
+
+# ── 6. workspace 템플릿 복사 ────────────────────────────────────────────────
+log_start "Copying workspace templates"
+WORKSPACE="/home/node/.openclaw/workspace"
+mkdir -p "$WORKSPACE"
+
+# MEMORY.md를 sentinel로 사용하여 최초 실행 여부 판단
+# Dropbox 볼륨(/home/node/.openclaw) 마운트 환경에서 사용자 데이터를 절대 덮어쓰지 않도록 방어
+# MEMORY.md, SOUL.md, AGENTS.md 등 커스텀 파일이 이미 존재하면 모든 복사를 건너뜀
+if [ ! -f "$WORKSPACE/MEMORY.md" ]; then
+    # 최초 실행 (또는 데이터 없는 빈 볼륨) — 전체 템플릿 복사
+    log_ok "First run detected — initializing workspace from templates"
+    cp /templates/AGENTS.md "$WORKSPACE/AGENTS.md"
+    cp /templates/SOUL.md   "$WORKSPACE/SOUL.md"
+    cp /templates/TOOLS.md  "$WORKSPACE/TOOLS.md"
+    cp /templates/MEMORY.md "$WORKSPACE/MEMORY.md"
+else
+    # 재시작 또는 데이터 보존 환경 — 기존 파일 유지, 덮어쓰기 없음
+    log_info "Workspace already initialized — skipping template copy (preserving user data)"
+fi
+
+chown -R node:node "$WORKSPACE"
+log_ok "Workspace ready"
+
+# ── 7. 환경변수 → .env 덤프 ──────────────────────────────────────────────────
 # 사용자가 나중에 .env를 직접 수정 + reload.sh로 설정 갱신 가능
 log_doing "Dumping environment variables to .env"
-ENV_FILE="/root/.openclaw/.env"
+ENV_FILE="/home/node/.openclaw/.env"
 cat > "$ENV_FILE" << ENVEOF
 # openclaw .env -- 환경변수 설정 파일
 # 수정 후 reload.sh 실행으로 반영: bash /usr/local/bin/reload.sh
@@ -134,52 +223,56 @@ cat > "$ENV_FILE" << ENVEOF
 # 필수
 TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
 TELEGRAM_ALLOWED_USER_IDS=${TELEGRAM_ALLOWED_USER_IDS}
-OLLAMA_MODEL=${OLLAMA_MODEL}
+ORCHESTRATOR_MODEL=${ORCHESTRATOR_MODEL}
+
+# 선택: Worker 모델 (미설정 시 ORCHESTRATOR_MODEL 상속)
+# ORCHESTRATOR가 유료 모델이면 반드시 ollama/<model>:<tag> 형식으로 지정
+WORKER_MODEL=${WORKER_MODEL:-}
+
+# 선택: 외부 provider API 키 (provider/key 형식, 쉼표로 여러 개)
+MODEL_API_KEY=${MODEL_API_KEY:-}
 
 # 선택: Gateway 토큰 (미설정 시 자동 생성, 설정 시 재시작 후에도 유지)
 OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN:-}
+
+# 선택: NotebookLM 인증 경로 (Dropbox 마운트 경로)
+NOTEBOOKLM_HOME=${NLM_HOME}
 
 # 선택: GitHub
 GITHUB_USERNAME=${GITHUB_USERNAME:-}
 GITHUB_EMAIL=${GITHUB_EMAIL:-}
 GITHUB_TOKEN=${GITHUB_TOKEN:-}
 GITHUB_REPO_URL=${GITHUB_REPO_URL:-}
-
-# 선택: 외부 AI provider API 키 (등록하면 서브 에이전트로 사용 가능)
-ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-OPENAI_API_KEY=${OPENAI_API_KEY:-}
-GEMINI_API_KEY=${GEMINI_API_KEY:-}
-MISTRAL_API_KEY=${MISTRAL_API_KEY:-}
-DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
-GROQ_API_KEY=${GROQ_API_KEY:-}
 ENVEOF
 chmod 600 "$ENV_FILE"
+chown node:node "$ENV_FILE"
 log_ok ".env written: ${ENV_FILE}"
 
-# ── 6. openclaw.json 생성 (generate-config.sh 호출) ─────────────────────────
+# ── 8. openclaw.json 생성 (generate-config.sh 호출) ─────────────────────────
 bash /usr/local/bin/generate-config.sh
-# generate-config.sh가 export한 OPENCLAW_GATEWAY_TOKEN을 가져옴
-OPENCLAW_TOKEN=$(jq -r '.gateway.auth.token' /root/.openclaw/openclaw.json)
+OPENCLAW_TOKEN=$(jq -r '.gateway.auth.token' /home/node/.openclaw/openclaw.json)
+chown node:node /home/node/.openclaw/openclaw.json
 
-# ── 7. OpenClaw gateway 시작 ────────────────────────────────────────────────
+# ── 9. OpenClaw gateway 시작 (node 사용자로 실행) ────────────────────────────
 # Source: https://docs.openclaw.ai/cli/gateway
+# gosu로 root → node 전환하여 보안 실행
 log_start "Starting OpenClaw gateway"
 export OPENCLAW_GATEWAY_TOKEN="${OPENCLAW_TOKEN}"
-openclaw gateway &
+gosu node openclaw gateway &
 OPENCLAW_PID=$!
 
-# gateway 준비 대기
 sleep 3
 
 log_done "All services started"
 echo ""
-echo "  Ollama model  : ${OLLAMA_MODEL}"
+echo "  Orchestrator  : ${ORCHESTRATOR_MODEL}"
+echo "  Worker model  : ${WORK_MODEL}"
 echo "  Gateway token : ${OPENCLAW_TOKEN}"
 echo ""
 
 # ── 컨테이너 유지 ────────────────────────────────────────────────────────────
 # SIGTERM 수신 시 openclaw 종료 후 컨테이너 정상 종료
-# openclaw 가 죽으면 (restore.sh 후 pkill 등) 자동 재시작
+# openclaw 가 죽으면 자동 재시작
 _stop() {
     log_warn "Shutting down..."
     kill "$OPENCLAW_PID" 2>/dev/null
@@ -191,7 +284,7 @@ while true; do
     if ! kill -0 "$OPENCLAW_PID" 2>/dev/null; then
         log_warn "OpenClaw gateway stopped, restarting..."
         sleep 1
-        openclaw gateway &
+        gosu node openclaw gateway &
         OPENCLAW_PID=$!
     fi
     sleep 3
