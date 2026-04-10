@@ -4,7 +4,7 @@
 # 사용법: bash /usr/local/bin/reload.sh
 #
 # 동작:
-#   1. /root/.openclaw/.env 를 읽어서 openclaw.json 재생성
+#   1. /home/node/.openclaw/.env 를 읽어서 openclaw.json 재생성
 #   2. openclaw gateway 프로세스 종료 (entrypoint.sh가 자동 재시작)
 #
 # References:

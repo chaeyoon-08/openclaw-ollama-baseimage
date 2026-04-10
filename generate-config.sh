@@ -189,8 +189,8 @@ jq -n \
         },
         mcpServers: {
             notebooklm: {
-                command: "uvx",
-                args: ["--from", "notebooklm-mcp-cli", "notebooklm-mcp"],
+                command: "notebooklm-mcp",
+                args: [],
                 env: { NOTEBOOKLM_HOME: $nlm_home }
             },
             filesystem: {
