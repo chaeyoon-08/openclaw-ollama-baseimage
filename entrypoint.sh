@@ -10,7 +10,7 @@
 #
 # 환경변수:
 #   필수: TELEGRAM_BOT_TOKEN, TELEGRAM_ALLOWED_USER_IDS, ORCHESTRATOR_MODEL
-#   선택: WORKER_MODEL, MODEL_API_KEY, NOTEBOOKLM_HOME
+#   선택: WORKER_MODEL, MODEL_API_KEY, NOTEBOOKLM_MCP_CLI_PATH
 #         GITHUB_USERNAME, GITHUB_EMAIL, GITHUB_TOKEN, GITHUB_REPO_URL
 #
 #   ORCHESTRATOR_MODEL 형식: provider/model[:tag]
@@ -177,15 +177,15 @@ log_start "Setting up node user environment"
 chown -R node:node /home/node/.openclaw
 chown -R node:node /home/node/.notebooklm 2>/dev/null || true
 
-# NOTEBOOKLM_HOME 마운트 경로 처리
-NLM_HOME="${NOTEBOOKLM_HOME:-/mnt/notebooklm}"
-export NOTEBOOKLM_HOME="$NLM_HOME"
+# NOTEBOOKLM_MCP_CLI_PATH 마운트 경로 처리
+NLM_HOME="${NOTEBOOKLM_MCP_CLI_PATH:-/mnt/notebooklm}"
+export NOTEBOOKLM_MCP_CLI_PATH="$NLM_HOME"
 
 if [ -d "$NLM_HOME" ]; then
     chown -R node:node "$NLM_HOME" 2>/dev/null || true
-    log_ok "NOTEBOOKLM_HOME: ${NLM_HOME}"
+    log_ok "NOTEBOOKLM_MCP_CLI_PATH: ${NLM_HOME}"
 else
-    log_warn "NOTEBOOKLM_HOME path does not exist: ${NLM_HOME}"
+    log_warn "NOTEBOOKLM_MCP_CLI_PATH path does not exist: ${NLM_HOME}"
     log_warn "  NotebookLM MCP will not function until the path is mounted."
 fi
 
@@ -236,7 +236,7 @@ MODEL_API_KEY=${MODEL_API_KEY:-}
 OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN:-}
 
 # 선택: NotebookLM 인증 경로 (Dropbox 마운트 경로)
-NOTEBOOKLM_HOME=${NLM_HOME}
+NOTEBOOKLM_MCP_CLI_PATH=${NLM_HOME}
 
 # 선택: GitHub
 GITHUB_USERNAME=${GITHUB_USERNAME:-}

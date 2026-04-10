@@ -43,7 +43,7 @@ fi
 # ── Provider 및 모델 설정 ────────────────────────────────────────────────────
 ORCH_PROVIDER=$(echo "$ORCHESTRATOR_MODEL" | cut -d'/' -f1)
 WORK_MODEL="${WORKER_MODEL:-$ORCHESTRATOR_MODEL}"
-NLM_HOME="${NOTEBOOKLM_HOME:-/mnt/notebooklm}"
+NLM_HOME="${NOTEBOOKLM_MCP_CLI_PATH:-/mnt/notebooklm}"
 
 # ── Gateway 토큰 ─────────────────────────────────────────────────────────────
 if [ -n "$OPENCLAW_GATEWAY_TOKEN" ]; then
@@ -191,7 +191,7 @@ jq -n \
             notebooklm: {
                 command: "notebooklm-mcp",
                 args: [],
-                env: { NOTEBOOKLM_HOME: $nlm_home }
+                env: { NOTEBOOKLM_MCP_CLI_PATH: $nlm_home }
             },
             filesystem: {
                 command: "npx",
