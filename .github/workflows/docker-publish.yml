@@ -118,6 +118,9 @@ jobs:
           if [ -z "$PREFIX" ]; then
             # main 브랜치
             TAGS="${IMAGE}:latest,${IMAGE}:${DATE},${IMAGE}:sha-${SHA}"
+          elif [ "$BRANCH" = "multi-agent" ]; then
+            # multi-agent 브랜치: :latest + :multi-agent 둘 다 발행
+            TAGS="${IMAGE}:latest,${IMAGE}:${PREFIX},${IMAGE}:${PREFIX}-${DATE},${IMAGE}:sha-${SHA}"
           else
             TAGS="${IMAGE}:${PREFIX},${IMAGE}:${PREFIX}-${DATE},${IMAGE}:sha-${SHA}"
           fi
