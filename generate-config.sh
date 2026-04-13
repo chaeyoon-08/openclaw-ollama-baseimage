@@ -14,8 +14,6 @@
 #       → heartbeat.model override는 반복 regression bug로 신뢰 불가 (#56788, #58137)
 #   [2] subagents.model = $WORKER_MODEL (Ollama 고정)
 #       → cron 잡 등 격리 세션 작업이 자동으로 로컬 모델 사용
-#   [3] modelTiers.local = $WORKER_MODEL
-#       → cron 잡 페이로드에서 "tier": "local" 지정 시 Ollama로 라우팅
 
 set -e
 
@@ -43,7 +41,7 @@ fi
 # ── Provider 및 모델 설정 ────────────────────────────────────────────────────
 ORCH_PROVIDER=$(echo "$ORCHESTRATOR_MODEL" | cut -d'/' -f1)
 WORK_MODEL="${WORKER_MODEL:-$ORCHESTRATOR_MODEL}"
-NLM_HOME="${NOTEBOOKLM_MCP_CLI_PATH:-/mnt/notebooklm}"
+NLM_HOME="${NOTEBOOKLM_MCP_CLI_PATH:-/mnt/notebooklm/OpenClaw_Auth}"
 
 # ── Gateway 토큰 ─────────────────────────────────────────────────────────────
 if [ -n "$OPENCLAW_GATEWAY_TOKEN" ]; then
@@ -136,9 +134,6 @@ jq -n \
             auth: { mode: "token", token: $token },
             controlUi: { allowedOrigins: ["*"], dangerouslyDisableDeviceAuth: true }
         },
-        modelTiers: {
-            local: $worker_model
-        },
         models: {
             mode: "merge",
             providers: {
@@ -187,15 +182,17 @@ jq -n \
                 allowFrom: $allow_from
             }
         },
-        mcpServers: {
-            notebooklm: {
-                command: "notebooklm-mcp",
-                args: [],
-                env: { NOTEBOOKLM_MCP_CLI_PATH: $nlm_home }
-            },
-            filesystem: {
-                command: "npx",
-                args: ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
+        mcp: {
+            servers: {
+                notebooklm: {
+                    command: "notebooklm-mcp",
+                    args: [],
+                    env: { NOTEBOOKLM_MCP_CLI_PATH: $nlm_home }
+                },
+                filesystem: {
+                    command: "npx",
+                    args: ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
+                }
             }
         }
     }' > /home/node/.openclaw/openclaw.json

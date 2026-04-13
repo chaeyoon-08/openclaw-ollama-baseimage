@@ -178,7 +178,7 @@ chown -R node:node /home/node/.openclaw
 chown -R node:node /home/node/.notebooklm 2>/dev/null || true
 
 # NOTEBOOKLM_MCP_CLI_PATH 마운트 경로 처리
-NLM_HOME="${NOTEBOOKLM_MCP_CLI_PATH:-/mnt/notebooklm}"
+NLM_HOME="${NOTEBOOKLM_MCP_CLI_PATH:-/mnt/notebooklm/OpenClaw_Auth}"
 export NOTEBOOKLM_MCP_CLI_PATH="$NLM_HOME"
 
 if [ -d "$NLM_HOME" ]; then
