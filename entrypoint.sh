@@ -236,9 +236,9 @@ log_ok ".env written: ${ENV_FILE}"
 # ── 8. openclaw.json 생성 (generate-config.sh 호출) ─────────────────────────
 # openclaw.json 항상 재생성: anomaly 상태 제거 → full scope fresh pairing 보장
 # token은 generate-config.sh가 기존 파일에서 먼저 읽어 유지함
-# nodes/ 클리어: 기존 operator.read pairing 레코드 제거 → fresh pairing 강제
+# devices/ 클리어: operator.read로 고정된 pairing 레코드 제거 → fresh pairing 강제
 CONFIG_FILE="/home/node/.openclaw/openclaw.json"
-rm -rf /home/node/.openclaw/nodes 2>/dev/null || true
+rm -rf /home/node/.openclaw/devices 2>/dev/null || true
 rm -f  /home/node/.openclaw/openclaw.json.bak 2>/dev/null || true
 bash /usr/local/bin/generate-config.sh
 chown node:node "$CONFIG_FILE"
