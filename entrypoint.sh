@@ -239,6 +239,7 @@ log_ok ".env written: ${ENV_FILE}"
 # nodes/ 클리어: 기존 operator.read pairing 레코드 제거 → fresh pairing 강제
 CONFIG_FILE="/home/node/.openclaw/openclaw.json"
 rm -rf /home/node/.openclaw/nodes 2>/dev/null || true
+rm -f  /home/node/.openclaw/openclaw.json.bak 2>/dev/null || true
 bash /usr/local/bin/generate-config.sh
 chown node:node "$CONFIG_FILE"
 OPENCLAW_TOKEN=$(jq -r '.gateway.auth.token' "$CONFIG_FILE")

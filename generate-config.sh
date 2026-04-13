@@ -117,6 +117,9 @@ fi
 log_doing "Generating openclaw.json"
 mkdir -p /home/node/.openclaw
 
+OPENCLAW_VERSION=$(openclaw --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "unknown")
+OPENCLAW_NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
 jq -n \
     --arg     token              "$OPENCLAW_TOKEN" \
     --arg     bot_token          "$TELEGRAM_BOT_TOKEN" \
@@ -125,8 +128,14 @@ jq -n \
     --arg     heartbeat_every    "$HEARTBEAT_EVERY" \
     --arg     heartbeat_model    "$HEARTBEAT_MODEL" \
     --arg     nlm_home           "$NLM_HOME" \
+    --arg     oc_version         "$OPENCLAW_VERSION" \
+    --arg     oc_now             "$OPENCLAW_NOW" \
     --argjson allow_from         "$ALLOW_FROM_JSON" \
     '{
+        meta: {
+            lastTouchedVersion: $oc_version,
+            lastTouchedAt: $oc_now
+        },
         gateway: {
             mode: "local",
             port: 18789,
