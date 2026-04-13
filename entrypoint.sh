@@ -249,9 +249,19 @@ chown node:node "$ENV_FILE"
 log_ok ".env written: ${ENV_FILE}"
 
 # ── 8. openclaw.json 생성 (generate-config.sh 호출) ─────────────────────────
-bash /usr/local/bin/generate-config.sh
-OPENCLAW_TOKEN=$(jq -r '.gateway.auth.token' /home/node/.openclaw/openclaw.json)
-chown node:node /home/node/.openclaw/openclaw.json
+# 이미 존재하면 재생성 건너뜀: gateway가 파일에 기록한 device state 메타를 보존하기 위함.
+# 재생성 시 메타 소실 → missing-meta-vs-last-good anomaly → device 승인 상태 리셋
+# → Telegram 사이드카 재연결 시 pairing required 발생 (docs/TROUBLESHOOTING.md #5)
+# 설정 변경이 필요하면 reload.sh 를 명시적으로 실행할 것.
+CONFIG_FILE="/home/node/.openclaw/openclaw.json"
+if [ ! -f "$CONFIG_FILE" ]; then
+    bash /usr/local/bin/generate-config.sh
+    chown node:node "$CONFIG_FILE"
+else
+    log_info "openclaw.json exists — skipping generation to preserve device state"
+    log_info "  To apply env var changes: run reload.sh"
+fi
+OPENCLAW_TOKEN=$(jq -r '.gateway.auth.token' "$CONFIG_FILE")
 
 # ── 9. OpenClaw gateway 시작 (node 사용자로 실행) ────────────────────────────
 # Source: https://docs.openclaw.ai/cli/gateway
