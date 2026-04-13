@@ -251,16 +251,35 @@ OPENCLAW_TOKEN=$(jq -r '.gateway.auth.token' "$CONFIG_FILE")
 # gosu로 root → node 전환하여 보안 실행
 log_start "Starting OpenClaw gateway"
 
-# nodes/ 클리어: scope 불일치(operator.read < operator.approvals)로 인한 Telegram pairing 실패 방지.
-# nodes/는 게이트웨이 클라이언트 인증 레코드만 담고 있어 에이전트 데이터와 무관.
-rm -rf /home/node/.openclaw/nodes 2>/dev/null || true
-log_info "Device pairing state cleared — fresh auto-pairing on start"
-
 export OPENCLAW_GATEWAY_TOKEN="${OPENCLAW_TOKEN}"
 gosu node openclaw gateway &
 OPENCLAW_PID=$!
 
 sleep 3
+
+# ── 10. 디바이스 scope upgrade 자동 승인 ────────────────────────────────────
+# isRepair:true = 이미 paired된 내부 클라이언트의 scope upgrade 요청 → 자동 승인
+# 외부 신규 디바이스는 isRepair:false → 승인 안 함
+_auto_approve_devices() {
+    RETRY=0
+    while [ $RETRY -lt 15 ]; do
+        sleep 5
+        PENDING_IDS=$(gosu node openclaw devices list --json 2>/dev/null \
+            | jq -r '.pending[] | select(.isRepair == true) | .requestId' 2>/dev/null || true)
+        if [ -n "$PENDING_IDS" ]; then
+            echo "$PENDING_IDS" | while read -r _id; do
+                log_doing "Auto-approving device scope upgrade: ${_id}"
+                gosu node openclaw devices approve "$_id" 2>/dev/null \
+                    && log_ok "Device approved: ${_id}" \
+                    || log_warn "Device approve failed: ${_id}"
+            done
+            return
+        fi
+        RETRY=$((RETRY + 1))
+    done
+    log_warn "No pending device repair requests found after 75s"
+}
+_auto_approve_devices &
 
 log_done "All services started"
 echo ""
