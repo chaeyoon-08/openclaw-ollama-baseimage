@@ -8,18 +8,8 @@
 #   OpenClaw gateway CLI:    https://docs.openclaw.ai/cli/gateway
 #   gosu (user switch):      https://github.com/tianon/gosu
 #
-# 환경변수:
-#   필수: TELEGRAM_BOT_TOKEN, TELEGRAM_ALLOWED_USER_IDS, ORCHESTRATOR_MODEL
-#   선택: WORKER_MODEL, MODEL_API_KEY, NOTEBOOKLM_MCP_CLI_PATH
-#         GITHUB_USERNAME, GITHUB_EMAIL, GITHUB_TOKEN, GITHUB_REPO_URL
-#
-#   ORCHESTRATOR_MODEL 형식: provider/model[:tag]
-#     ollama/qwen3:14b            → 로컬 Ollama (무료)
-#     anthropic/claude-sonnet-4-6 → Anthropic API (유료)
-#
-#   요금 방어 규칙:
-#     ORCHESTRATOR가 유료 provider이면 WORKER_MODEL은 반드시 ollama/ 여야 함.
-#     미설정이거나 유료 모델이면 컨테이너 기동을 중단함.
+# 환경변수 필수: TELEGRAM_BOT_TOKEN, TELEGRAM_ALLOWED_USER_IDS, ORCHESTRATOR_MODEL
+# 환경변수 선택: WORKER_MODEL, MODEL_API_KEY, NOTEBOOKLM_MCP_CLI_PATH, GITHUB_*
 
 set -e
 
@@ -57,8 +47,7 @@ log_ok "  WORKER_MODEL              = ${WORK_MODEL}"
 log_ok "  TELEGRAM_ALLOWED_USER_IDS = ${TELEGRAM_ALLOWED_USER_IDS}"
 
 # ── 요금 폭탄 방어: 유료 Orchestrator + 비-Ollama Worker 조합 차단 ──────────
-# cron/heartbeat 등 백그라운드 작업이 WORKER_MODEL을 사용하므로
-# 유료 provider 환경에서는 반드시 Ollama로 강제해야 함
+# cron/heartbeat 백그라운드 작업이 WORKER_MODEL을 사용 → 유료 환경에서 Ollama 필수
 if [ "$ORCH_PROVIDER" != "ollama" ]; then
     if [ "$WORK_PROVIDER" != "ollama" ]; then
         log_stop "ORCHESTRATOR_MODEL is a paid provider but WORKER_MODEL is not set to an Ollama model.
@@ -126,9 +115,7 @@ if [ "$NEEDS_OLLAMA" = "true" ]; then
     log_ok "Ollama is ready"
 
     # ── 4. Ollama 모델 다운로드 ──────────────────────────────────────────────
-    # CLI 방식 대신 REST API(stream: true) 사용 이유:
-    #   CLI는 non-TTY 환경에서 진행바 \r을 줄바꿈으로 출력 → 로그 수천 줄 발생
-    #   API 스트리밍은 JSON 한 줄씩 수신 → 10% 단위 필터링으로 간결한 로그 출력
+    # REST API pull: CLI는 non-TTY에서 \r→줄바꿈으로 로그 폭발. API 스트리밍으로 대체.
     # Source: https://github.com/ollama/ollama/blob/main/docs/api.md#pull-a-model
     _pull_model() {
         local _model="$1"
@@ -194,9 +181,7 @@ log_start "Copying workspace templates"
 WORKSPACE="/home/node/.openclaw/workspace"
 mkdir -p "$WORKSPACE"
 
-# MEMORY.md를 sentinel로 사용하여 최초 실행 여부 판단
-# Dropbox 볼륨(/home/node/.openclaw) 마운트 환경에서 사용자 데이터를 절대 덮어쓰지 않도록 방어
-# MEMORY.md, SOUL.md, AGENTS.md 등 커스텀 파일이 이미 존재하면 모든 복사를 건너뜀
+# MEMORY.md를 sentinel로 최초 실행 여부 판단 — 존재하면 모든 복사 건너뜀 (사용자 데이터 보호)
 if [ ! -f "$WORKSPACE/MEMORY.md" ]; then
     # 최초 실행 (또는 데이터 없는 빈 볼륨) — 전체 템플릿 복사
     log_ok "First run detected — initializing workspace from templates"
@@ -249,10 +234,8 @@ chown node:node "$ENV_FILE"
 log_ok ".env written: ${ENV_FILE}"
 
 # ── 8. openclaw.json 생성 (generate-config.sh 호출) ─────────────────────────
-# 이미 존재하면 재생성 건너뜀: gateway가 파일에 기록한 device state 메타를 보존하기 위함.
-# 재생성 시 메타 소실 → missing-meta-vs-last-good anomaly → device 승인 상태 리셋
-# → Telegram 사이드카 재연결 시 pairing required 발생 (docs/TROUBLESHOOTING.md #5)
-# 설정 변경이 필요하면 reload.sh 를 명시적으로 실행할 것.
+# 이미 존재하면 재생성 건너뜀: 재생성 시 device state 메타 소실 → pairing required 발생.
+# 설정 변경은 reload.sh 로 반영할 것.
 CONFIG_FILE="/home/node/.openclaw/openclaw.json"
 if [ ! -f "$CONFIG_FILE" ]; then
     bash /usr/local/bin/generate-config.sh
@@ -268,11 +251,8 @@ OPENCLAW_TOKEN=$(jq -r '.gateway.auth.token' "$CONFIG_FILE")
 # gosu로 root → node 전환하여 보안 실행
 log_start "Starting OpenClaw gateway"
 
-# 디바이스 pairing state 클리어: 재시작마다 fresh auto-pairing 보장
-# 이유: 과거 pairing 레코드에 저장된 scope(operator.read)가 현재 필요 scope(operator.approvals)보다
-#       낮으면 scope upgrade 요청이 자동 승인되지 않아 Telegram 연결 실패.
-#       nodes/는 게이트웨이 클라이언트 인증 레코드만 담고 있으며,
-#       사용자 대화 기록·MEMORY.md·SOUL.md 등 에이전트 데이터와 완전히 무관.
+# nodes/ 클리어: scope 불일치(operator.read < operator.approvals)로 인한 Telegram pairing 실패 방지.
+# nodes/는 게이트웨이 클라이언트 인증 레코드만 담고 있어 에이전트 데이터와 무관.
 rm -rf /home/node/.openclaw/nodes 2>/dev/null || true
 log_info "Device pairing state cleared — fresh auto-pairing on start"
 
