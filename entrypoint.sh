@@ -234,16 +234,13 @@ chown node:node "$ENV_FILE"
 log_ok ".env written: ${ENV_FILE}"
 
 # ── 8. openclaw.json 생성 (generate-config.sh 호출) ─────────────────────────
-# 이미 존재하면 재생성 건너뜀: 재생성 시 device state 메타 소실 → pairing required 발생.
-# 설정 변경은 reload.sh 로 반영할 것.
+# openclaw.json 항상 재생성: anomaly 상태 제거 → full scope fresh pairing 보장
+# token은 generate-config.sh가 기존 파일에서 먼저 읽어 유지함
+# nodes/ 클리어: 기존 operator.read pairing 레코드 제거 → fresh pairing 강제
 CONFIG_FILE="/home/node/.openclaw/openclaw.json"
-if [ ! -f "$CONFIG_FILE" ]; then
-    bash /usr/local/bin/generate-config.sh
-    chown node:node "$CONFIG_FILE"
-else
-    log_info "openclaw.json exists — skipping generation to preserve device state"
-    log_info "  To apply env var changes: run reload.sh"
-fi
+rm -rf /home/node/.openclaw/nodes 2>/dev/null || true
+bash /usr/local/bin/generate-config.sh
+chown node:node "$CONFIG_FILE"
 OPENCLAW_TOKEN=$(jq -r '.gateway.auth.token' "$CONFIG_FILE")
 
 # ── 9. OpenClaw gateway 시작 (node 사용자로 실행) ────────────────────────────
@@ -256,30 +253,6 @@ gosu node openclaw gateway &
 OPENCLAW_PID=$!
 
 sleep 3
-
-# ── 10. 디바이스 scope upgrade 자동 승인 ────────────────────────────────────
-# isRepair:true = 이미 paired된 내부 클라이언트의 scope upgrade 요청 → 자동 승인
-# 외부 신규 디바이스는 isRepair:false → 승인 안 함
-_auto_approve_devices() {
-    RETRY=0
-    while [ $RETRY -lt 15 ]; do
-        sleep 5
-        PENDING_IDS=$(gosu node openclaw devices list --json 2>/dev/null \
-            | jq -r '.pending[] | select(.isRepair == true) | .requestId' 2>/dev/null || true)
-        if [ -n "$PENDING_IDS" ]; then
-            echo "$PENDING_IDS" | while read -r _id; do
-                log_doing "Auto-approving device scope upgrade: ${_id}"
-                gosu node openclaw devices approve "$_id" 2>/dev/null \
-                    && log_ok "Device approved: ${_id}" \
-                    || log_warn "Device approve failed: ${_id}"
-            done
-            return
-        fi
-        RETRY=$((RETRY + 1))
-    done
-    log_warn "No pending device repair requests found after 75s"
-}
-_auto_approve_devices &
 
 log_done "All services started"
 echo ""
