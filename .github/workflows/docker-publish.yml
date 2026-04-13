@@ -4,7 +4,7 @@
 # 브랜치별 이미지 이름 및 태그:
 #   main        → ghcr.io/<owner>/openclaw-bot          :latest, :YYYY.MM.DD, :sha-<7자>
 #   skills      → ghcr.io/<owner>/openclaw-bot-skills   :skills, :skills-YYYY.MM.DD, :sha-<7자>
-#   multi-agent → ghcr.io/<owner>/openclaw-bot-multi    :multi-agent, :multi-agent-YYYY.MM.DD, :sha-<7자>
+#   multi-agent → ghcr.io/<owner>/openclaw-bot-multi    :latest, :sha-<7자>
 #   agent-kit   → ghcr.io/<owner>/openclaw-bot-agentkit :agent-kit, :agent-kit-YYYY.MM.DD, :sha-<7자>
 #
 # References:
@@ -114,13 +114,14 @@ jobs:
           PREFIX="${{ steps.image.outputs.prefix }}"
           DATE="${{ steps.image.outputs.date }}"
           SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          BRANCH="${GITHUB_REF#refs/heads/}"
 
           if [ -z "$PREFIX" ]; then
             # main 브랜치
             TAGS="${IMAGE}:latest,${IMAGE}:${DATE},${IMAGE}:sha-${SHA}"
           elif [ "$BRANCH" = "multi-agent" ]; then
-            # multi-agent 브랜치: main과 동일한 패턴
-            TAGS="${IMAGE}:latest,${IMAGE}:${DATE},${IMAGE}:sha-${SHA}"
+            # multi-agent 브랜치: :latest + :sha-xxx 두 태그만
+            TAGS="${IMAGE}:latest,${IMAGE}:sha-${SHA}"
           else
             TAGS="${IMAGE}:${PREFIX},${IMAGE}:${PREFIX}-${DATE},${IMAGE}:sha-${SHA}"
           fi
