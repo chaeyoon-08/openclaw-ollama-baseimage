@@ -34,9 +34,12 @@ ENV TZ=Asia/Seoul
 
 # uv 도구 경로 설정 (notebooklm-mcp-cli 설치 및 실행에 필요)
 # Source: https://docs.astral.sh/uv/concepts/tools/
+# UV_PYTHON_INSTALL_DIR: 미설정 시 /root/.local/share/uv/python/ 에 설치되어
+# node 사용자가 /root 접근 불가 → spawn EACCES 발생. /opt/uv/python 으로 고정.
 ENV UV_TOOL_DIR=/opt/uv/tools
 ENV UV_TOOL_BIN_DIR=/usr/local/bin
 ENV UV_CACHE_DIR=/opt/uv/cache
+ENV UV_PYTHON_INSTALL_DIR=/opt/uv/python
 
 # === 기본 도구 설치 (gosu 포함) ===
 # gosu: entrypoint에서 root → node 전환으로 openclaw gateway를 비root 실행
@@ -90,7 +93,7 @@ RUN pip3 install uv \
 # UV_TOOL_BIN_DIR=/usr/local/bin 이므로 entry point가 시스템 PATH에 포함됨
 # a+rX: node 사용자가 uvx notebooklm-mcp-cli 실행 가능하도록 읽기/실행 권한 부여
 RUN uv tool install notebooklm-mcp-cli \
-    && chmod -R a+rX /opt/uv/tools
+    && chmod -R a+rX /opt/uv/
 
 # === OpenClaw 설치 ===
 # Source: https://docs.openclaw.ai/install/docker
