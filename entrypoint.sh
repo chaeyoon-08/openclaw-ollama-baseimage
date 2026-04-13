@@ -267,6 +267,15 @@ OPENCLAW_TOKEN=$(jq -r '.gateway.auth.token' "$CONFIG_FILE")
 # Source: https://docs.openclaw.ai/cli/gateway
 # gosu로 root → node 전환하여 보안 실행
 log_start "Starting OpenClaw gateway"
+
+# 디바이스 pairing state 클리어: 재시작마다 fresh auto-pairing 보장
+# 이유: 과거 pairing 레코드에 저장된 scope(operator.read)가 현재 필요 scope(operator.approvals)보다
+#       낮으면 scope upgrade 요청이 자동 승인되지 않아 Telegram 연결 실패.
+#       nodes/는 게이트웨이 클라이언트 인증 레코드만 담고 있으며,
+#       사용자 대화 기록·MEMORY.md·SOUL.md 등 에이전트 데이터와 완전히 무관.
+rm -rf /home/node/.openclaw/nodes 2>/dev/null || true
+log_info "Device pairing state cleared — fresh auto-pairing on start"
+
 export OPENCLAW_GATEWAY_TOKEN="${OPENCLAW_TOKEN}"
 gosu node openclaw gateway &
 OPENCLAW_PID=$!
