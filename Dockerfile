@@ -79,6 +79,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends software-proper
         x11vnc \
         python3-websockify \
         novnc \
+        openbox \
     && rm -rf /var/lib/apt/lists/*
 
 # === Node.js 24 설치 ===
