@@ -92,7 +92,7 @@ RUN pip3 install uv \
 # UV_TOOL_DIR=/opt/uv/tools 에 격리된 venv로 설치
 # UV_TOOL_BIN_DIR=/usr/local/bin 이므로 entry point가 시스템 PATH에 포함됨
 # a+rX: node 사용자가 uvx notebooklm-mcp-cli 실행 가능하도록 읽기/실행 권한 부여
-RUN uv tool install notebooklm-mcp-cli \
+RUN uv tool install notebooklm-mcp-cli --python 3.12 \
     && chmod -R a+rX /opt/uv/
 
 # === OpenClaw 설치 ===
