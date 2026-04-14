@@ -126,8 +126,21 @@ if [ "$NEEDS_OLLAMA" = "true" ]; then
     # ── 4. Ollama 모델 다운로드 ──────────────────────────────────────────────
     # REST API pull: CLI는 non-TTY에서 \r→줄바꿈으로 로그 폭발. API 스트리밍으로 대체.
     # Source: https://github.com/ollama/ollama/blob/main/docs/api.md#pull-a-model
+
+    # 모델 존재 여부 확인: 이미 있으면 pull 건너뜀 (재시작 후 재다운로드 방지)
+    _model_exists() {
+        curl -sf http://localhost:11434/api/tags \
+        | jq -r '.models[].name' 2>/dev/null \
+        | grep -qxF "$1"
+    }
+
+    # 동기 pull — Orchestrator 모델: 봇 시작 전 반드시 준비 완료
     _pull_model() {
         local _model="$1"
+        if _model_exists "$_model"; then
+            log_ok "Model already present (skip): ${_model}"
+            return 0
+        fi
         log_doing "Pulling Ollama model: ${_model}"
         _LAST_BUCKET=-1
         curl -sf -X POST http://localhost:11434/api/pull \
@@ -153,20 +166,56 @@ if [ "$NEEDS_OLLAMA" = "true" ]; then
         log_ok "Model ready: ${_model}"
     }
 
-    # Orchestrator 모델 pull (ollama 모델일 때만)
+    # 백그라운드 pull — Worker 모델: 서브 에이전트 실행 시점에 준비되면 충분
+    _pull_model_bg() {
+        local _model="$1"
+        if _model_exists "$_model"; then
+            log_ok "Model already present (skip): ${_model}"
+            return 0
+        fi
+        log_info "Background pull queued: ${_model}"
+        (
+            _LAST_BUCKET=-1
+            curl -sf -X POST http://localhost:11434/api/pull \
+                -d "{\"name\":\"${_model}\"}" \
+            | while IFS= read -r line; do
+                STATUS=$(printf '%s' "$line" | jq -r '.status    // empty' 2>/dev/null)
+                TOTAL=$( printf '%s' "$line" | jq -r '.total     // 0'     2>/dev/null)
+                DONE=$(  printf '%s' "$line" | jq -r '.completed // 0'     2>/dev/null)
+                if [ "${TOTAL:-0}" -gt 0 ] 2>/dev/null; then
+                    PCT=$(( DONE * 100 / TOTAL ))
+                    BUCKET=$(( PCT / 10 * 10 ))
+                    if [ "$BUCKET" -ne "$_LAST_BUCKET" ]; then
+                        _LAST_BUCKET=$BUCKET
+                        log_doing "  [bg:${_model}] ${STATUS}: ${BUCKET}%"
+                    fi
+                elif [ -n "$STATUS" ]; then
+                    case "$STATUS" in
+                        "pulling manifest"|"verifying sha256 digest"|"writing manifest"|"success")
+                            log_doing "  [bg:${_model}] ${STATUS}";;
+                    esac
+                fi
+            done
+            log_ok "Model ready (background): ${_model}"
+        ) &
+    }
+
+    # Orchestrator 모델 pull (ollama 모델일 때만) — 동기: 봇 시작 전 완료 필수
     if [ "$ORCH_PROVIDER" = "ollama" ]; then
         ORCH_MODEL_NAME=$(echo "$ORCHESTRATOR_MODEL" | cut -d'/' -f2-)
         _pull_model "$ORCH_MODEL_NAME"
     fi
 
-    # Worker 모델 pull (쉼표 구분, ollama 모델만, Orchestrator와 다른 것만)
+    # Worker 모델 pull — 백그라운드: 봇 즉시 시작, 다운로드는 병렬 진행
+    # 주의: /root/.ollama 는 컨테이너 재시작 시 초기화됨 (비영속 경로).
+    #       재시작마다 재다운로드를 막으려면 gcube 볼륨으로 /root/.ollama 를 마운트하라.
     IFS=',' read -ra _WM_PULL <<< "${WORKER_MODEL:-}"
     for _wm in "${_WM_PULL[@]}"; do
         _wm=$(echo "$_wm" | tr -d ' ')
         _wp=$(echo "$_wm" | cut -d'/' -f1)
         _wmn=$(echo "$_wm" | cut -d'/' -f2-)
         if [ "$_wp" = "ollama" ] && [ "$_wm" != "$ORCHESTRATOR_MODEL" ]; then
-            _pull_model "$_wmn"
+            _pull_model_bg "$_wmn"
         fi
     done
 else
@@ -274,7 +323,7 @@ sleep 3
 log_done "All services started"
 echo ""
 echo "  Orchestrator  : ${ORCHESTRATOR_MODEL}"
-echo "  Worker model  : ${WORK_MODEL}"
+echo "  Worker model  : ${WORKER_MODEL:-$ORCHESTRATOR_MODEL}"
 echo "  Gateway token : ${OPENCLAW_TOKEN}"
 echo ""
 
