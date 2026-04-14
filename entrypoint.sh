@@ -227,6 +227,12 @@ if [ "$NEEDS_OLLAMA" = "true" ]; then
                     log_info "All worker models ready — reloading gateway..."
                     _notify_telegram "모든 워커 모델 준비 완료. Gateway 재시작 중 (잠시 대기)..."
                     bash /usr/local/bin/reload.sh 2>/dev/null || true
+                    # gateway HTTP 응답 확인 후 알림 전송 (reload.sh 완료 ≠ 실제 서비스 준비)
+                    _GW_RETRY=0
+                    until curl -sf "http://localhost:18789/" > /dev/null 2>&1 || [ "$_GW_RETRY" -ge 20 ]; do
+                        sleep 1
+                        _GW_RETRY=$((_GW_RETRY + 1))
+                    done
                     _notify_telegram "Gateway 재시작 완료. 전체 모델 사용 가능합니다."
                 fi
             ) 200>"$_BG_RELOAD_LOCK"
@@ -260,18 +266,22 @@ fi
 log_start "Setting up node user environment"
 
 chown -R node:node /home/node/.openclaw
-chown -R node:node /home/node/.notebooklm 2>/dev/null || true
 
 # NOTEBOOKLM_MCP_CLI_PATH 마운트 경로 처리
+# nlm login CLI는 ~/.notebooklm-mcp-cli/ 에 고정 저장하므로
+# gcube 마운트 경로로 심링크 → 컨테이너 재시작 후에도 auth 유지
+# Source: https://github.com/jacob-bd/notebooklm-mcp-cli/blob/main/docs/AUTHENTICATION.md
 NLM_HOME="${NOTEBOOKLM_MCP_CLI_PATH:-/mnt/notebooklm/OpenClaw_Auth}"
 export NOTEBOOKLM_MCP_CLI_PATH="$NLM_HOME"
 
 if [ -d "$NLM_HOME" ]; then
     chown -R node:node "$NLM_HOME" 2>/dev/null || true
-    log_ok "NOTEBOOKLM_MCP_CLI_PATH: ${NLM_HOME}"
+    rm -rf /home/node/.notebooklm-mcp-cli
+    ln -s "$NLM_HOME" /home/node/.notebooklm-mcp-cli
+    log_ok "NOTEBOOKLM_MCP_CLI_PATH: ${NLM_HOME} (symlinked)"
 else
-    log_warn "NOTEBOOKLM_MCP_CLI_PATH path does not exist: ${NLM_HOME}"
-    log_warn "  NotebookLM MCP will not function until the path is mounted."
+    log_warn "NOTEBOOKLM_MCP_CLI_PATH not mounted: ${NLM_HOME}"
+    log_warn "  nlm login will use container-local storage (not persistent)"
 fi
 
 # ── 6. workspace 템플릿 복사 ────────────────────────────────────────────────
@@ -365,6 +375,10 @@ fi
 log_start "Starting OpenClaw gateway"
 
 export OPENCLAW_GATEWAY_TOKEN="${OPENCLAW_TOKEN}"
+# OPENCLAW_NO_RESPAWN=1: SIGUSR1 수신 시 새 프로세스 spawn 대신 in-process 재시작
+# 커스텀 supervisor(entrypoint while 루프) 환경에서 이중 인스턴스 → EADDRINUSE 방지
+# Source: https://github.com/openclaw/openclaw/issues/65668
+export OPENCLAW_NO_RESPAWN=1
 gosu node openclaw gateway &
 OPENCLAW_PID=$!
 
