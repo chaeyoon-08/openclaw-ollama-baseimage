@@ -68,13 +68,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # === nlm-login 스킬: 가상 디스플레이 + noVNC 패키지 ===
 # xvfb: 가상 프레임버퍼, x11vnc: VNC 서버, websockify/novnc: 웹 VNC
-# nlm login 실행 시 Playwright가 Xvfb(:99)에서 headful Chrome 기동 → 사용자 noVNC 접속 가능
+# x11vnc, novnc, python3-websockify 는 Ubuntu 22.04 universe 저장소에만 있음
+# software-properties-common 으로 universe 활성화 후 설치
+# Source: https://launchpad.net/ubuntu/jammy/+package/x11vnc
 # Source: https://github.com/novnc/noVNC
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    xvfb \
-    x11vnc \
-    python3-websockify \
-    novnc \
+RUN apt-get update && apt-get install -y --no-install-recommends software-properties-common \
+    && add-apt-repository -y universe \
+    && apt-get update && apt-get install -y --no-install-recommends \
+        xvfb \
+        x11vnc \
+        python3-websockify \
+        novnc \
     && rm -rf /var/lib/apt/lists/*
 
 # === Node.js 24 설치 ===
@@ -114,10 +118,17 @@ RUN uv tool install notebooklm-mcp-cli --python 3.12 \
     && chmod -R a+rX /opt/uv/
 
 # === Playwright Chromium 설치 (nlm-login 스킬 headful 모드용) ===
-# notebooklm-mcp-cli venv의 Playwright로 Chromium 설치 → PLAYWRIGHT_BROWSERS_PATH 위치에 저장
+# notebooklm-mcp-cli venv의 playwright 바이너리를 find로 동적 탐색
+# (uv 패키지명 정규화가 버전별로 다르므로 경로를 하드코딩하지 않음)
 # --with-deps: Chromium 실행에 필요한 OS 패키지(libX11, libatk 등) 자동 설치
 # Source: https://playwright.dev/python/docs/browsers#install-browsers
-RUN /opt/uv/tools/notebooklm-mcp-cli/.venv/bin/python -m playwright install chromium --with-deps \
+RUN _PW=$(find /opt/uv/tools -name "playwright" -path "*/bin/playwright" 2>/dev/null | head -1) \
+    && if [ -z "$_PW" ]; then \
+           echo "playwright binary not found in uv tools, falling back to pip3 install"; \
+           pip3 install playwright; \
+           _PW=playwright; \
+       fi \
+    && "$_PW" install chromium --with-deps \
     && chmod -R a+rX /opt/playwright-browsers
 
 # === OpenClaw 설치 ===
