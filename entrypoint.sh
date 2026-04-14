@@ -153,9 +153,11 @@ if [ "$NEEDS_OLLAMA" = "true" ]; then
         log_ok "Model ready: ${_model}"
     }
 
-    # Orchestrator 모델 pull
-    ORCH_MODEL_NAME=$(echo "$ORCHESTRATOR_MODEL" | cut -d'/' -f2-)
-    _pull_model "$ORCH_MODEL_NAME"
+    # Orchestrator 모델 pull (ollama 모델일 때만)
+    if [ "$ORCH_PROVIDER" = "ollama" ]; then
+        ORCH_MODEL_NAME=$(echo "$ORCHESTRATOR_MODEL" | cut -d'/' -f2-)
+        _pull_model "$ORCH_MODEL_NAME"
+    fi
 
     # Worker 모델 pull (쉼표 구분, ollama 모델만, Orchestrator와 다른 것만)
     IFS=',' read -ra _WM_PULL <<< "${WORKER_MODEL:-}"
