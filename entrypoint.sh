@@ -38,22 +38,28 @@ fi
 
 # ── Provider 감지 ──────────────────────────────────────────────────────────
 ORCH_PROVIDER=$(echo "$ORCHESTRATOR_MODEL" | cut -d'/' -f1)
-WORK_MODEL="${WORKER_MODEL:-$ORCHESTRATOR_MODEL}"
-WORK_PROVIDER=$(echo "$WORK_MODEL" | cut -d'/' -f1)
+# WORKER_MODEL: 쉼표로 여러 모델 지정 가능. 첫 번째 모델로 provider 판단
+WORK_MODEL_PRIMARY=$(echo "${WORKER_MODEL:-$ORCHESTRATOR_MODEL}" | cut -d',' -f1 | tr -d ' ')
+WORK_PROVIDER=$(echo "$WORK_MODEL_PRIMARY" | cut -d'/' -f1)
 
 log_ok "Required variables present"
 log_ok "  ORCHESTRATOR_MODEL        = ${ORCHESTRATOR_MODEL}"
-log_ok "  WORKER_MODEL              = ${WORK_MODEL}"
+log_ok "  WORKER_MODEL              = ${WORKER_MODEL:-$ORCHESTRATOR_MODEL}"
 log_ok "  TELEGRAM_ALLOWED_USER_IDS = ${TELEGRAM_ALLOWED_USER_IDS}"
 
 # ── 요금 폭탄 방어: 유료 Orchestrator + 비-Ollama Worker 조합 차단 ──────────
-# cron/heartbeat 백그라운드 작업이 WORKER_MODEL을 사용 → 유료 환경에서 Ollama 필수
+# 모든 worker 모델이 ollama여야 함
 if [ "$ORCH_PROVIDER" != "ollama" ]; then
-    if [ "$WORK_PROVIDER" != "ollama" ]; then
-        log_stop "ORCHESTRATOR_MODEL is a paid provider but WORKER_MODEL is not set to an Ollama model.
-          Background/cron tasks would incur API costs.
-          Set WORKER_MODEL=ollama/<model>:<tag> to continue."
-    fi
+    IFS=',' read -ra _WM_LIST <<< "${WORKER_MODEL:-$ORCHESTRATOR_MODEL}"
+    for _wm in "${_WM_LIST[@]}"; do
+        _wm=$(echo "$_wm" | tr -d ' ')
+        _wp=$(echo "$_wm" | cut -d'/' -f1)
+        if [ "$_wp" != "ollama" ]; then
+            log_stop "WORKER_MODEL contains non-Ollama model '${_wm}'.
+          All worker models must be ollama when ORCHESTRATOR_MODEL uses a paid provider.
+          Replace '${_wm}' with ollama/<model>:<tag>"
+        fi
+    done
     # 유료 provider API 키 등록 여부 확인
     echo "$MODEL_API_KEY" | tr ',' '\n' | grep -q "^${ORCH_PROVIDER}/" \
         || log_stop "ORCHESTRATOR_MODEL uses provider '${ORCH_PROVIDER}' but no matching MODEL_API_KEY entry found.
@@ -63,7 +69,10 @@ fi
 # Ollama 필요 여부 판단 (ORCHESTRATOR 또는 WORKER 중 하나라도 ollama이면 시작)
 NEEDS_OLLAMA=false
 [ "$ORCH_PROVIDER" = "ollama" ] && NEEDS_OLLAMA=true
-[ "$WORK_PROVIDER" = "ollama" ] && NEEDS_OLLAMA=true
+IFS=',' read -ra _WM_CHECK <<< "${WORKER_MODEL:-$ORCHESTRATOR_MODEL}"
+for _wm in "${_WM_CHECK[@]}"; do
+    [ "$(echo "$_wm" | tr -d ' ' | cut -d'/' -f1)" = "ollama" ] && NEEDS_OLLAMA=true
+done
 
 # ── 2. GitHub 설정 (선택) ────────────────────────────────────────────────────
 # GITHUB_USERNAME + GITHUB_EMAIL 이 모두 있을 때만 실행
@@ -148,11 +157,16 @@ if [ "$NEEDS_OLLAMA" = "true" ]; then
     ORCH_MODEL_NAME=$(echo "$ORCHESTRATOR_MODEL" | cut -d'/' -f2-)
     _pull_model "$ORCH_MODEL_NAME"
 
-    # Worker 모델 pull (Orchestrator와 다를 때만)
-    if [ "$WORK_PROVIDER" = "ollama" ] && [ "$WORK_MODEL" != "$ORCHESTRATOR_MODEL" ]; then
-        WORK_MODEL_NAME=$(echo "$WORK_MODEL" | cut -d'/' -f2-)
-        _pull_model "$WORK_MODEL_NAME"
-    fi
+    # Worker 모델 pull (쉼표 구분, ollama 모델만, Orchestrator와 다른 것만)
+    IFS=',' read -ra _WM_PULL <<< "${WORKER_MODEL:-}"
+    for _wm in "${_WM_PULL[@]}"; do
+        _wm=$(echo "$_wm" | tr -d ' ')
+        _wp=$(echo "$_wm" | cut -d'/' -f1)
+        _wmn=$(echo "$_wm" | cut -d'/' -f2-)
+        if [ "$_wp" = "ollama" ] && [ "$_wm" != "$ORCHESTRATOR_MODEL" ]; then
+            _pull_model "$_wmn"
+        fi
+    done
 else
     log_info "Ollama not required — skipping Ollama start"
 fi

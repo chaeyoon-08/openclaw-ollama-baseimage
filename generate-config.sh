@@ -40,7 +40,8 @@ fi
 
 # ── Provider 및 모델 설정 ────────────────────────────────────────────────────
 ORCH_PROVIDER=$(echo "$ORCHESTRATOR_MODEL" | cut -d'/' -f1)
-WORK_MODEL="${WORKER_MODEL:-$ORCHESTRATOR_MODEL}"
+# WORKER_MODEL: 쉼표로 여러 개 지정 가능. subagents 기본값은 첫 번째 모델 사용
+WORK_MODEL=$(echo "${WORKER_MODEL:-$ORCHESTRATOR_MODEL}" | cut -d',' -f1 | tr -d ' ')
 NLM_HOME="${NOTEBOOKLM_MCP_CLI_PATH:-/mnt/notebooklm/OpenClaw_Auth}"
 
 # ── Gateway 토큰 ─────────────────────────────────────────────────────────────
