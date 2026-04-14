@@ -151,6 +151,38 @@ openclaw plugins install [패키지명]
 
 ---
 
+## Ollama 모델 동적 추가
+
+사용자가 새 모델 추가를 요청하거나, 작업에 더 적합한 모델이 필요하다고 판단되면 다음 절차를 따른다.
+
+### 현재 모델 목록 확인
+
+```bash
+ollama list
+```
+
+### 새 모델 추가 절차
+
+```bash
+# 1. 모델 다운로드 (백그라운드 또는 포그라운드)
+ollama pull <model>:<tag>
+
+# 2. 다운로드 완료 후 gateway에 등록
+reload.sh
+```
+
+- `reload.sh`는 `generate-config.sh`를 재실행하고 gateway를 재시작한다
+- gateway가 재시작되면 Ollama에 있는 모든 모델을 자동 스캔하여 등록한다
+- `.env` 수정 없이도 새 모델이 즉시 사용 가능해진다
+
+### 주의사항
+
+- `ollama pull`은 용량이 크므로 (수 GB) 장기 작업이다 — `sessions_spawn`으로 위임하거나 백그라운드에서 실행하라
+- `reload.sh` 실행 시 gateway가 잠시 재시작된다 — 진행 중인 세션이 있으면 사용자에게 미리 알릴 것
+- 다운로드 진행률은 `ollama list`로 확인 가능하다 (다운로드 중인 모델은 목록에 표시됨)
+
+---
+
 ## 행동 원칙
 
 - 할루시네이션 금지: 확실하지 않은 정보를 사실인 것처럼 답하지 말 것. NotebookLM으로 확인 후 답하라
