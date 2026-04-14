@@ -246,17 +246,21 @@ log_start "Copying workspace templates"
 WORKSPACE="/home/node/.openclaw/workspace"
 mkdir -p "$WORKSPACE"
 
-# MEMORY.md를 sentinel로 최초 실행 여부 판단 — 존재하면 모든 복사 건너뜀 (사용자 데이터 보호)
+# 시스템 지침 파일: 재배포마다 항상 최신 이미지 버전으로 갱신
+# (에이전트 행동 규칙이므로 사용자 데이터가 아님 — 덮어쓰기 안전)
+cp /templates/AGENTS.md      "$WORKSPACE/AGENTS.md"
+cp /templates/CONSTRAINTS.md "$WORKSPACE/CONSTRAINTS.md" 2>/dev/null || true
+cp /templates/TOOLS.md       "$WORKSPACE/TOOLS.md"
+log_ok "System templates updated (AGENTS.md, CONSTRAINTS.md, TOOLS.md)"
+
+# 사용자 데이터 파일: MEMORY.md를 sentinel로 최초 실행 여부 판단
+# MEMORY.md, SOUL.md는 에이전트가 축적한 기억/성격 → 절대 덮어쓰지 않음
 if [ ! -f "$WORKSPACE/MEMORY.md" ]; then
-    # 최초 실행 (또는 데이터 없는 빈 볼륨) — 전체 템플릿 복사
-    log_ok "First run detected — initializing workspace from templates"
-    cp /templates/AGENTS.md "$WORKSPACE/AGENTS.md"
+    log_ok "First run detected — initializing user data from templates"
     cp /templates/SOUL.md   "$WORKSPACE/SOUL.md"
-    cp /templates/TOOLS.md  "$WORKSPACE/TOOLS.md"
     cp /templates/MEMORY.md "$WORKSPACE/MEMORY.md"
 else
-    # 재시작 또는 데이터 보존 환경 — 기존 파일 유지, 덮어쓰기 없음
-    log_info "Workspace already initialized — skipping template copy (preserving user data)"
+    log_info "User data preserved (MEMORY.md, SOUL.md)"
 fi
 
 chown -R node:node "$WORKSPACE"
