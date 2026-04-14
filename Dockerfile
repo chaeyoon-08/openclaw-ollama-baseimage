@@ -100,6 +100,12 @@ RUN uv tool install notebooklm-mcp-cli --python 3.12 \
 # root로 시스템 전역 설치 → /usr/local/bin/openclaw (node 사용자도 gosu로 실행 가능)
 RUN npm install -g openclaw@latest
 
+# === shell MCP 서버 설치 ===
+# Source: https://github.com/mako10k/mcp-shell-server
+# node 사용자 권한으로 ollama CLI, reload.sh 등 시스템 명령 실행 가능하게 함
+# 이미지 사전 설치로 npx -y 다운로드 지연 없이 즉시 기동
+RUN npm install -g @mako10k/mcp-shell-server
+
 # === 디렉터리 생성 및 권한 설정 ===
 # /home/node/.openclaw  : OpenClaw 설정·세션·메모리 (Dropbox OpenClaw_Data 마운트 대상)
 # /home/node/.notebooklm: notebooklm-mcp-cli 기본 인증 경로 (fallback)

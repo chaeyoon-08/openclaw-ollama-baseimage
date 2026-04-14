@@ -222,6 +222,11 @@ jq -n \
                 filesystem: {
                     command: "npx",
                     args: ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
+                },
+                shell: {
+                    command: "npx",
+                    args: ["-y", "@mako10k/mcp-shell-server"],
+                    env: { MCP_SHELL_DEFAULT_WORKDIR: "/home/node/.openclaw/workspace" }
                 }
             }
         }
