@@ -167,6 +167,8 @@ if [ "$NEEDS_OLLAMA" = "true" ]; then
     }
 
     # 백그라운드 pull — Worker 모델: 서브 에이전트 실행 시점에 준비되면 충분
+    # 다운로드 완료 후 reload.sh 자동 실행 → gateway가 Ollama 재스캔하여 모델 등록
+    # flock으로 동시 reload 방지: 여러 모델이 비슷한 시각에 완료되어도 순차 처리
     _pull_model_bg() {
         local _model="$1"
         if _model_exists "$_model"; then
@@ -197,6 +199,13 @@ if [ "$NEEDS_OLLAMA" = "true" ]; then
                 fi
             done
             log_ok "Model ready (background): ${_model}"
+            # gateway 재스캔으로 모델 등록 (flock: 동시 reload 직렬화)
+            (
+                flock -x -w 60 200 \
+                    || { log_warn "[bg:${_model}] Reload lock timeout — skipping auto-register"; exit 0; }
+                log_info "[bg:${_model}] Reloading gateway to register model..."
+                bash /usr/local/bin/reload.sh 2>/dev/null || true
+            ) 200>/tmp/openclaw-reload.lock
         ) &
     }
 
