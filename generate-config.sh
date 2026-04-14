@@ -45,23 +45,10 @@ WORK_MODEL=$(echo "${WORKER_MODEL:-$ORCHESTRATOR_MODEL}" | cut -d',' -f1 | tr -d
 NLM_HOME="${NOTEBOOKLM_MCP_CLI_PATH:-/mnt/notebooklm/OpenClaw_Auth}"
 
 # ── Ollama 모델 목록 구성 ────────────────────────────────────────────────────
-# models: [] 자동 스캔 대신 명시적 목록 → gateway Config overwrite 시에도 전체 모델 보존
-# (백그라운드 다운로드 중인 모델도 미리 등록 → 다운로드 완료 즉시 사용 가능)
-_OLLAMA_MODELS_JSON="[]"
-if [ "$ORCH_PROVIDER" = "ollama" ]; then
-    _OMN=$(echo "$ORCHESTRATOR_MODEL" | cut -d'/' -f2-)
-    _OLLAMA_MODELS_JSON=$(echo "$_OLLAMA_MODELS_JSON" | jq --arg m "$_OMN" '. + [$m]')
-fi
-IFS=',' read -ra _ALL_WM_LIST <<< "${WORKER_MODEL:-}"
-for _wm in "${_ALL_WM_LIST[@]}"; do
-    _wm=$(echo "$_wm" | tr -d ' ')
-    _wp=$(echo "$_wm" | cut -d'/' -f1)
-    _wmn=$(echo "$_wm" | cut -d'/' -f2-)
-    if [ "$_wp" = "ollama" ]; then
-        _OLLAMA_MODELS_JSON=$(echo "$_OLLAMA_MODELS_JSON" | jq --arg m "$_wmn" '. + [$m]')
-    fi
-done
-log_info "Ollama models registered: ${_OLLAMA_MODELS_JSON}"
+# models: [] → OpenClaw이 Ollama API를 통해 자동 스캔·등록
+# 명시적 객체 배열 형식(v2026.4.x 신규 스키마)은 구현 복잡도가 높아 자동 스캔 방식 유지
+# 워커 모델 인식 지연 이슈(Config overwrite)는 openclaw/openclaw#27252 수정 이후 동작 확인 필요
+log_info "Ollama model list: auto-scan (models: [])"
 
 # ── Gateway 토큰 ─────────────────────────────────────────────────────────────
 if [ -n "$OPENCLAW_GATEWAY_TOKEN" ]; then
@@ -151,7 +138,6 @@ jq -n \
     --arg     oc_version         "$OPENCLAW_VERSION" \
     --arg     oc_now             "$OPENCLAW_NOW" \
     --argjson allow_from         "$ALLOW_FROM_JSON" \
-    --argjson ollama_models      "$_OLLAMA_MODELS_JSON" \
     '{
         meta: {
             lastTouchedVersion: $oc_version,
@@ -171,7 +157,7 @@ jq -n \
                     baseUrl: "http://localhost:11434",
                     apiKey:  "ollama",
                     api:     "ollama",
-                    models:  $ollama_models
+                    models:  []
                 }
             }
         },
