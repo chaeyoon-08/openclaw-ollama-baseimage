@@ -66,6 +66,54 @@ echo "Orchestrator: $ORCHESTRATOR_MODEL / Worker: $WORKER_MODEL"
 
 ---
 
+## NotebookLM 연결 상태 확인 및 재인증 (nlm-login 스킬)
+
+### 상태 확인 (사용자가 NLM 연동 현황을 물을 때)
+
+shell 도구로 인증 파일 존재 여부를 즉시 확인한다:
+
+```bash
+ls "${NOTEBOOKLM_MCP_CLI_PATH:-/mnt/notebooklm/OpenClaw_Auth}/profiles/default/cookies.json" 2>&1
+```
+
+- **파일 있음**: "NotebookLM 인증 파일이 있습니다. 연동 정상입니다." 보고 후 다음 작업 진행.
+- **파일 없음 또는 오류**: 아래 권장 메시지 전송:
+
+```
+NotebookLM 인증 파일이 없거나 만료됐습니다.
+재인증이 필요합니다. `/nlm-login` 을 입력하시면 재인증 절차를 시작합니다.
+```
+
+### 재인증 실행 (사용자가 `/nlm-login` 입력 또는 NLM 오류 발생 시)
+
+**[1단계]** noVNC + nlm login 프로세스 시작:
+```bash
+bash /usr/local/bin/nlm-reauth-start.sh
+```
+
+**[2단계]** 사용자에게 안내:
+```
+NotebookLM 재인증 준비됐습니다.
+SSH 터널을 열고 브라우저에서 Google 로그인을 진행해 주세요.
+
+1. 로컬 터미널: ssh -L 6080:localhost:6080 <gcube-user>@<gcube-ip>
+2. 브라우저: http://localhost:6080/vnc.html
+3. 화면에서 Google 계정으로 로그인
+4. 로그인 완료 후 이 채팅에 "완료"라고 입력해 주세요.
+```
+
+**[3단계]** 사용자가 "완료"라고 하면:
+```bash
+bash /usr/local/bin/nlm-reauth-finish.sh
+bash /usr/local/bin/reload.sh
+```
+
+**[4단계]** 완료 안내 후 NLM 도구 재시도.
+
+오류 시: `/tmp/nlm-login.log` 내용을 사용자에게 보고하고 재시도 여부 확인.
+
+---
+
 ## 작업 실행 전 모델 선택
 
 **전략 수립, 분석, 사용자와의 대화**는 오케스트레이터 모델(현재 세션)이 직접 처리한다.

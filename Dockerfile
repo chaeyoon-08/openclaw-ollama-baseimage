@@ -9,6 +9,8 @@
 #   gosu (user switch):      https://github.com/tianon/gosu
 #   uv (Python pkg mgr):     https://docs.astral.sh/uv/
 #   notebooklm-mcp-cli:      https://github.com/jacob-bd/notebooklm-mcp-cli
+#   noVNC (web VNC):         https://github.com/novnc/noVNC
+#   Playwright install:      https://playwright.dev/python/docs/browsers
 #
 # Base: nvidia/cuda:12.8.1-runtime-ubuntu22.04
 #   - CUDA 12.8.1: Pascal(sm_60) ~ Blackwell(sm_120) 전 GPU 지원 (CUDA 13.x부터 Pascal dropped)
@@ -41,6 +43,11 @@ ENV UV_TOOL_BIN_DIR=/usr/local/bin
 ENV UV_CACHE_DIR=/opt/uv/cache
 ENV UV_PYTHON_INSTALL_DIR=/opt/uv/python
 
+# Playwright 브라우저 경로: 시스템 전역 위치로 고정
+# node 사용자도 접근 가능하도록 /opt/playwright-browsers 에 설치
+# Source: https://playwright.dev/python/docs/browsers#managing-browser-binaries
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
+
 # === 기본 도구 설치 (gosu 포함) ===
 # gosu: entrypoint에서 root → node 전환으로 openclaw gateway를 비root 실행
 # Source: https://github.com/tianon/gosu
@@ -57,6 +64,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     jq \
     zstd \
     gosu \
+    && rm -rf /var/lib/apt/lists/*
+
+# === nlm-login 스킬: 가상 디스플레이 + noVNC 패키지 ===
+# xvfb: 가상 프레임버퍼, x11vnc: VNC 서버, websockify/novnc: 웹 VNC
+# nlm login 실행 시 Playwright가 Xvfb(:99)에서 headful Chrome 기동 → 사용자 noVNC 접속 가능
+# Source: https://github.com/novnc/noVNC
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    xvfb \
+    x11vnc \
+    python3-websockify \
+    novnc \
     && rm -rf /var/lib/apt/lists/*
 
 # === Node.js 24 설치 ===
@@ -95,6 +113,13 @@ RUN pip3 install uv \
 RUN uv tool install notebooklm-mcp-cli --python 3.12 \
     && chmod -R a+rX /opt/uv/
 
+# === Playwright Chromium 설치 (nlm-login 스킬 headful 모드용) ===
+# notebooklm-mcp-cli venv의 Playwright로 Chromium 설치 → PLAYWRIGHT_BROWSERS_PATH 위치에 저장
+# --with-deps: Chromium 실행에 필요한 OS 패키지(libX11, libatk 등) 자동 설치
+# Source: https://playwright.dev/python/docs/browsers#install-browsers
+RUN /opt/uv/tools/notebooklm-mcp-cli/.venv/bin/python -m playwright install chromium --with-deps \
+    && chmod -R a+rX /opt/playwright-browsers
+
 # === OpenClaw 설치 ===
 # Source: https://docs.openclaw.ai/install/docker
 # root로 시스템 전역 설치 → /usr/local/bin/openclaw (node 사용자도 gosu로 실행 가능)
@@ -123,11 +148,16 @@ COPY templates/ /templates/
 COPY entrypoint.sh /entrypoint.sh
 COPY generate-config.sh /usr/local/bin/generate-config.sh
 COPY reload.sh /usr/local/bin/reload.sh
+COPY nlm-reauth-start.sh /usr/local/bin/nlm-reauth-start.sh
+COPY nlm-reauth-finish.sh /usr/local/bin/nlm-reauth-finish.sh
 RUN chmod +x /entrypoint.sh \
     /usr/local/bin/generate-config.sh \
-    /usr/local/bin/reload.sh
+    /usr/local/bin/reload.sh \
+    /usr/local/bin/nlm-reauth-start.sh \
+    /usr/local/bin/nlm-reauth-finish.sh
 
 EXPOSE 18789
+EXPOSE 6080
 
 WORKDIR /workspace
 

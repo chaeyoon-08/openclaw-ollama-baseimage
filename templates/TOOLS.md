@@ -97,3 +97,53 @@ openclaw plugins install [패키지명]
 # 설치 후 gateway 재시작 필요
 bash /usr/local/bin/reload.sh
 ```
+
+---
+
+## 스킬: nlm-login
+
+NotebookLM MCP 인증이 만료되었을 때 gcube 서버에서 직접 재인증하는 스킬.
+
+**발동 조건:** NLM 도구 호출 시 인증 오류(auth expired, unauthorized, cookie error), 또는 사용자가 NLM 재인증 요청.
+
+**실행 순서 — 반드시 이 순서대로:**
+
+### [1단계] noVNC + nlm login 프로세스 시작
+
+```bash
+bash /usr/local/bin/nlm-reauth-start.sh
+```
+
+### [2단계] 사용자에게 안내 전송
+
+```
+NotebookLM 재인증 준비됐습니다.
+SSH 터널을 열고 브라우저에서 Google 로그인을 진행해 주세요.
+
+1. 로컬 터미널: ssh -L 6080:localhost:6080 <gcube-user>@<gcube-ip>
+2. 브라우저: http://localhost:6080/vnc.html
+3. 화면에서 Google 계정으로 로그인
+4. 로그인 완료 후 이 채팅에 "완료"라고 입력해 주세요.
+```
+
+gcube 접속 방법을 모르면: "gcube SSH 접속 방법을 알려주세요." 라고 사용자에게 물어본다.
+
+### [3단계] 사용자가 "완료"라고 하면 — 인증 파일 저장 + 정리
+
+```bash
+bash /usr/local/bin/nlm-reauth-finish.sh
+```
+
+### [4단계] NLM MCP 재연결을 위해 gateway reload
+
+```bash
+bash /usr/local/bin/reload.sh
+```
+
+### [5단계] 완료 안내
+
+```
+NotebookLM 인증이 갱신됐습니다. NLM 도구를 다시 사용할 수 있습니다.
+```
+
+**오류 처리:** `nlm-reauth-finish.sh` 실행 후 "Auth file not found" 메시지가 나오면 `/tmp/nlm-login.log` 내용을 사용자에게 보고하고 재시도 여부를 확인한다.
