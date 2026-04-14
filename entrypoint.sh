@@ -309,7 +309,20 @@ bash /usr/local/bin/generate-config.sh
 chown node:node "$CONFIG_FILE"
 OPENCLAW_TOKEN=$(jq -r '.gateway.auth.token' "$CONFIG_FILE")
 
-# ── 9. OpenClaw gateway 시작 (node 사용자로 실행) ────────────────────────────
+# ── 9. Stale session lock 파일 정리 ─────────────────────────────────────────
+# 컨테이너 재시작 시 이전 인스턴스 PID는 무효화됨 → .lock 파일이 잔류하면
+# 새 세션 요청이 "session file locked (timeout 10000ms)"으로 전부 실패
+# Source: https://github.com/openclaw/openclaw/issues/27252
+_STALE_LOCKS=$(find /home/node/.openclaw/agents -name "*.lock" 2>/dev/null || true)
+if [ -n "$_STALE_LOCKS" ]; then
+    _LOCK_COUNT=$(echo "$_STALE_LOCKS" | wc -l)
+    find /home/node/.openclaw/agents -name "*.lock" -delete 2>/dev/null || true
+    log_ok "Cleaned ${_LOCK_COUNT} stale session lock file(s)"
+else
+    log_info "No stale session lock files"
+fi
+
+# ── 10. OpenClaw gateway 시작 (node 사용자로 실행) ───────────────────────────
 # Source: https://docs.openclaw.ai/cli/gateway
 # gosu로 root → node 전환하여 보안 실행
 log_start "Starting OpenClaw gateway"
