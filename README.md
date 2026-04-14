@@ -19,8 +19,8 @@ gcube GPU 워크로드 전용 OpenClaw + Ollama 컨테이너 이미지.
 
 | 항목 | 내용 |
 |---|---|
-| 설치 버전 | `2026.4.11` |
-| 빌드 날짜 | 2026-04-13 |
+| 설치 버전 | `2026.4.12` |
+| 빌드 날짜 | 2026-04-14 |
 
 버전별 변경사항: https://github.com/openclaw/openclaw/releases
 
