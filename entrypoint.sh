@@ -329,7 +329,7 @@ echo ""
 
 # ── 컨테이너 유지 ────────────────────────────────────────────────────────────
 # SIGTERM 수신 시 openclaw 종료 후 컨테이너 정상 종료
-# openclaw 가 죽으면 자동 재시작
+# openclaw 가 죽으면 자동 재시작 (단, SIGUSR1 자체 재시작은 PID 추적만 갱신)
 _stop() {
     log_warn "Shutting down..."
     kill "$OPENCLAW_PID" 2>/dev/null
@@ -339,10 +339,18 @@ trap _stop SIGTERM SIGINT
 
 while true; do
     if ! kill -0 "$OPENCLAW_PID" 2>/dev/null; then
-        log_warn "OpenClaw gateway stopped, restarting..."
-        sleep 1
-        gosu node openclaw gateway &
-        OPENCLAW_PID=$!
+        # PID 사라짐 — 게이트웨이가 SIGUSR1 자체 재시작했는지 확인
+        sleep 2
+        NEW_PID=$(pgrep -u node -f "openclaw gateway" 2>/dev/null | head -1 || true)
+        if [ -n "$NEW_PID" ]; then
+            # 자체 재시작: 새 PID 추적만 갱신, 재시작 시도 금지 (포트 충돌 방지)
+            log_info "Gateway self-restarted (new PID: ${NEW_PID}) — tracking updated"
+            OPENCLAW_PID="$NEW_PID"
+        else
+            log_warn "OpenClaw gateway stopped, restarting..."
+            gosu node openclaw gateway &
+            OPENCLAW_PID=$!
+        fi
     fi
     sleep 3
 done
