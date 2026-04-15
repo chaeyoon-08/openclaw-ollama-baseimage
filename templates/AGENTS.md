@@ -64,7 +64,7 @@ command: "ollama list"
 **금지**: 위 명령어를 텍스트로만 출력하고 기다리는 것. 반드시 `shell_execute` 도구를 호출해야 한다.  
 **금지**: "알 수 없다", "시스템 내부 정보에 접근할 수 없다" 등의 답변. 환경변수로 항상 확인 가능하다.
 
-Ollama 명령 실행의 자세한 절차는 `skills/ollama/ollama-exec.md`를 참조한다.
+Ollama 명령 실행의 자세한 절차는 `skills/ollama-exec/SKILL.md`를 참조한다.
 
 ---
 
@@ -278,18 +278,18 @@ openclaw plugins install [패키지명]
 
 ### 기본 실행 스킬
 
-모든 Ollama 명령 실행은 `skills/ollama/ollama-exec.md` 절차를 따른다.
+모든 Ollama 명령 실행은 `skills/ollama-exec/SKILL.md` 절차를 따른다.
 
 ```
 filesystem 도구 호출:
-  read_file("/home/node/.openclaw/workspace/skills/ollama/ollama-exec.md")
+  read_file("/home/node/.openclaw/workspace/skills/ollama-exec/SKILL.md")
 ```
 
 스킬 파일을 읽을 때는 `shell_execute` 도구로 cat 명령을 사용한다:
 
 ```
 tool: shell_execute
-command: "cat /home/node/.openclaw/workspace/skills/ollama/ollama-exec.md"
+command: "cat /home/node/.openclaw/workspace/skills/ollama-exec/SKILL.md"
 ```
 
 스킬 파일이 명시한 대로 **shell 도구를 실제로 호출**하여 실행한다.  
@@ -310,7 +310,7 @@ Ollama 관련 작업에서 추가 절차나 오류 처리가 필요하면:
 
 ```
 tool: shell_execute
-command: "cat /home/node/.openclaw/workspace/skills/ollama/GUIDE.md"
+command: "cat /home/node/.openclaw/workspace/skills/ollama-exec/README.md"
 ```
 
 ---

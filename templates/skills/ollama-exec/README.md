@@ -1,8 +1,8 @@
-# Ollama 스킬 가이드
+# ollama-exec 스킬 가이드
 
 ## 이 폴더의 목적
 
-Ollama 관련 작업 시 참조하는 스킬 파일 모음.
+Ollama 명령 실행 관련 스킬 파일 모음.
 AGENTS.md에서 Ollama 작업이 필요할 때 이 폴더를 참조한다.
 
 ---
@@ -11,7 +11,7 @@ AGENTS.md에서 Ollama 작업이 필요할 때 이 폴더를 참조한다.
 
 | 파일 | 용도 | 발동 조건 |
 |---|---|---|
-| `ollama-exec.md` | Ollama 명령 실행 | 모델 조회, 다운로드, 상태 확인, 환경변수 확인 |
+| `SKILL.md` | Ollama 명령 실행 | 모델 조회, 다운로드, 상태 확인, 환경변수 확인 |
 
 ---
 
@@ -21,7 +21,7 @@ AGENTS.md에서 Ollama 작업이 필요할 때 이 폴더를 참조한다.
 
 ```
 tool: shell_execute
-command: "cat /home/node/.openclaw/workspace/skills/ollama/ollama-exec.md"
+command: "cat /home/node/.openclaw/workspace/skills/ollama-exec/SKILL.md"
 ```
 
 (filesystem MCP는 /workspace 만 서빙하므로 openclaw workspace 파일은 shell_execute cat 사용)
@@ -32,10 +32,10 @@ command: "cat /home/node/.openclaw/workspace/skills/ollama/ollama-exec.md"
 
 | 상황 | 참조 파일 |
 |---|---|
-| `ollama list`, `ollama ps`, `ollama show` 실행 | `ollama-exec.md` |
-| `ollama pull` 로 모델 다운로드 | `ollama-exec.md` — "모델 다운로드" 섹션 |
-| Ollama 연결 오류 (`connection refused` 등) | `ollama-exec.md` — "오류 처리" 섹션 |
-| 워커 모델 / 오케스트레이터 모델 환경변수 확인 | `ollama-exec.md` — "명령어 목록" 참조 |
+| `ollama list`, `ollama ps`, `ollama show` 실행 | `SKILL.md` |
+| `ollama pull` 로 모델 다운로드 | `SKILL.md` — "모델 다운로드" 섹션 |
+| Ollama 연결 오류 (`connection refused` 등) | `SKILL.md` — "오류 처리" 섹션 |
+| 워커 모델 / 오케스트레이터 모델 환경변수 확인 | `SKILL.md` — "명령어 목록" 참조 |
 
 ---
 

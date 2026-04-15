@@ -1,4 +1,4 @@
-# NLM 스킬 가이드
+# nlm-login 스킬 가이드
 
 ## 상태
 
@@ -7,11 +7,11 @@
 
 ---
 
-## 구현 예정 스킬 파일 목록
+## 스킬 파일 목록
 
 | 파일 | 용도 |
 |---|---|
-| `nlm-login.md` | NotebookLM MCP 재인증 (noVNC + Google 로그인) |
+| `SKILL.md` | NotebookLM MCP 재인증 (noVNC + Google 로그인) |
 
 ---
 
