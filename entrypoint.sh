@@ -166,49 +166,13 @@ if [ "$NEEDS_OLLAMA" = "true" ]; then
         log_ok "Model ready: ${_model}"
     }
 
-    # 백그라운드 pull — Worker 모델: 서브 에이전트 실행 시점에 준비되면 충분
-    # auto-discovery(OLLAMA_API_KEY + /api/tags) 방식: pull 완료 즉시 자동 인식
-    # gateway reload 불필요 — docs.openclaw.ai/providers/ollama 공식 확인
-    _pull_model_bg() {
-        local _model="$1"
-        if _model_exists "$_model"; then
-            log_ok "Model already present (skip): ${_model}"
-            return 0
-        fi
-        log_info "Background pull queued: ${_model}"
-        (
-            _LAST_BUCKET=-1
-            curl -sf -X POST http://localhost:11434/api/pull \
-                -d "{\"name\":\"${_model}\"}" \
-            | while IFS= read -r line; do
-                STATUS=$(printf '%s' "$line" | jq -r '.status    // empty' 2>/dev/null)
-                TOTAL=$( printf '%s' "$line" | jq -r '.total     // 0'     2>/dev/null)
-                DONE=$(  printf '%s' "$line" | jq -r '.completed // 0'     2>/dev/null)
-                if [ "${TOTAL:-0}" -gt 0 ] 2>/dev/null; then
-                    PCT=$(( DONE * 100 / TOTAL ))
-                    BUCKET=$(( PCT / 10 * 10 ))
-                    if [ "$BUCKET" -ne "$_LAST_BUCKET" ]; then
-                        _LAST_BUCKET=$BUCKET
-                        log_doing "  [bg:${_model}] ${STATUS}: ${BUCKET}%"
-                    fi
-                elif [ -n "$STATUS" ]; then
-                    case "$STATUS" in
-                        "pulling manifest"|"verifying sha256 digest"|"writing manifest"|"success")
-                            log_doing "  [bg:${_model}] ${STATUS}";;
-                    esac
-                fi
-            done
-            log_ok "Model ready (background): ${_model}"
-        ) &
-    }
-
-    # Orchestrator 모델 pull (ollama 모델일 때만) — 동기: 봇 시작 전 완료 필수
+    # Orchestrator 모델 pull (ollama 모델일 때만) — 동기
     if [ "$ORCH_PROVIDER" = "ollama" ]; then
         ORCH_MODEL_NAME=$(echo "$ORCHESTRATOR_MODEL" | cut -d'/' -f2-)
         _pull_model "$ORCH_MODEL_NAME"
     fi
 
-    # Worker 모델 pull — 백그라운드: 봇 즉시 시작, 다운로드는 병렬 진행
+    # Worker 모델 pull — 동기: 모든 모델 준비 완료 후 openclaw.json 등록 및 gateway 시작
     # 주의: /root/.ollama 는 컨테이너 재시작 시 초기화됨 (비영속 경로).
     #       재시작마다 재다운로드를 막으려면 gcube 볼륨으로 /root/.ollama 를 마운트하라.
     IFS=',' read -ra _WM_PULL <<< "${WORKER_MODEL:-}"
@@ -217,7 +181,7 @@ if [ "$NEEDS_OLLAMA" = "true" ]; then
         _wp=$(echo "$_wm" | cut -d'/' -f1)
         _wmn=$(echo "$_wm" | cut -d'/' -f2-)
         if [ "$_wp" = "ollama" ] && [ "$_wm" != "$ORCHESTRATOR_MODEL" ]; then
-            _pull_model_bg "$_wmn"
+            _pull_model "$_wmn"
         fi
     done
 else
@@ -326,27 +290,6 @@ rm -f  /home/node/.openclaw/openclaw.json.bak 2>/dev/null || true
 bash /usr/local/bin/generate-config.sh
 chown node:node "$CONFIG_FILE"
 OPENCLAW_TOKEN=$(jq -r '.gateway.auth.token' "$CONFIG_FILE")
-
-# ── 8.5. Ollama auth-profiles.json 생성 ─────────────────────────────────────
-# Known bug: OLLAMA_API_KEY 환경변수만으로는 gateway Config overwrite 이후
-# Ollama 인증이 끊기는 현상 발생 (Issue #3740, #28927, #50759)
-# auth-profiles.json 명시 등록으로 인증 안정화 (커뮤니티 워크어라운드)
-# Source: https://github.com/openclaw/openclaw/issues/3740
-log_doing "Writing Ollama auth profile (workaround: Issue #3740)"
-cat > /home/node/.openclaw/auth-profiles.json << 'AUTHEOF'
-{
-  "ollama:local": {
-    "type": "token",
-    "provider": "ollama",
-    "token": "ollama"
-  },
-  "lastGood": {
-    "ollama": "ollama:local"
-  }
-}
-AUTHEOF
-chown node:node /home/node/.openclaw/auth-profiles.json
-log_ok "Ollama auth profile written"
 
 # ── 9. Stale session lock 파일 정리 ─────────────────────────────────────────
 # 컨테이너 재시작 시 이전 인스턴스 PID는 무효화됨 → .lock 파일이 잔류하면

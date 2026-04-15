@@ -44,17 +44,6 @@ ORCH_PROVIDER=$(echo "$ORCHESTRATOR_MODEL" | cut -d'/' -f1)
 WORK_MODEL=$(echo "${WORKER_MODEL:-$ORCHESTRATOR_MODEL}" | cut -d',' -f1 | tr -d ' ')
 NLM_HOME="${NOTEBOOKLM_MCP_CLI_PATH:-/mnt/notebooklm/OpenClaw_Auth}"
 
-# ── Ollama 모델 목록 구성 ────────────────────────────────────────────────────
-# openclaw.json에서 models.providers.ollama 블록을 명시하지 않는 이유:
-#   블록을 명시하는 순간(models:[] 포함) auto-discovery가 비활성화되어 models.json에
-#   등록된 모델만 표시됨 → /models 명령에 1개만 나오는 현상 발생
-#   블록 미정의 + OLLAMA_API_KEY 환경변수(Dockerfile에 설정) → /api/tags 자동 스캔
-#   → 설치된 전체 Ollama 모델이 /models에 표시됨
-# Source: https://docs.openclaw.ai/providers/ollama
-# 주의: api:"openai-completions"는 tool calling을 차단함 (Issue #41328)
-#       api:"ollama" 회귀(Issue #66202)는 2026.4.12에서 발생, 2026.4.11은 정상
-log_info "Ollama model list: auto-discovery via OLLAMA_API_KEY + /api/tags"
-
 # ── Gateway 토큰 ─────────────────────────────────────────────────────────────
 if [ -n "$OPENCLAW_GATEWAY_TOKEN" ]; then
     OPENCLAW_TOKEN="$OPENCLAW_GATEWAY_TOKEN"
@@ -108,6 +97,40 @@ if [ -n "$MODEL_API_KEY" ]; then
             *) log_warn "Unknown provider in MODEL_API_KEY: ${_provider} — skipped" ;;
         esac
     done
+fi
+
+# ── Ollama provider 명시 등록 ────────────────────────────────────────────────
+# providers: {} + OLLAMA_API_KEY → Config overwrite 이후 auth 끊김 (Issue #3740)
+# api: "openai-completions" → tool calling 차단 (Issue #41328)
+# 해결: 모든 모델 다운로드 완료 후 api: "ollama" + 명시적 목록으로 등록
+# 2026.4.11에서 api: "ollama" 정상 동작 (회귀는 2026.4.12에서 발생 — Issue #66202)
+# Source: https://docs.openclaw.ai/providers/ollama
+_OLLAMA_MODEL_IDS="[]"
+
+if [ "$ORCH_PROVIDER" = "ollama" ]; then
+    _m=$(echo "$ORCHESTRATOR_MODEL" | cut -d'/' -f2-)
+    _OLLAMA_MODEL_IDS=$(echo "$_OLLAMA_MODEL_IDS" | jq --arg id "$_m" '. + [{"id": $id}]')
+fi
+
+if [ -n "$WORKER_MODEL" ]; then
+    IFS=',' read -ra _WML <<< "$WORKER_MODEL"
+    for _wm in "${_WML[@]}"; do
+        _wm=$(echo "$_wm" | tr -d ' ')
+        _wp=$(echo "$_wm" | cut -d'/' -f1)
+        _wmid=$(echo "$_wm" | cut -d'/' -f2-)
+        if [ "$_wp" = "ollama" ]; then
+            _DUP=$(echo "$_OLLAMA_MODEL_IDS" | jq --arg id "$_wmid" '[.[] | select(.id == $id)] | length')
+            [ "$_DUP" = "0" ] && \
+                _OLLAMA_MODEL_IDS=$(echo "$_OLLAMA_MODEL_IDS" | jq --arg id "$_wmid" '. + [{"id": $id}]')
+        fi
+    done
+fi
+
+if [ "$(echo "$_OLLAMA_MODEL_IDS" | jq 'length')" -gt 0 ]; then
+    _PROVIDERS_JSON=$(echo "$_PROVIDERS_JSON" | jq \
+        --argjson models "$_OLLAMA_MODEL_IDS" \
+        '. + {"ollama": {"api": "ollama", "baseUrl": "http://127.0.0.1:11434", "apiKey": "ollama-local", "models": $models}}')
+    log_info "Ollama models registered: $(echo "$_OLLAMA_MODEL_IDS" | jq -r '[.[].id] | join(", ")')"
 fi
 
 # ── Heartbeat 설정 결정 ──────────────────────────────────────────────────────
