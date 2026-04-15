@@ -34,7 +34,7 @@ ENV OLLAMA_HOST=127.0.0.1:11434
 # OpenClaw Ollama auto-discovery 인증 키
 # models.providers.ollama 블록 미정의 시 이 값으로 /api/tags 자동 스캔 활성화
 # Source: https://docs.openclaw.ai/providers/ollama
-ENV OLLAMA_API_KEY=ollama
+ENV OLLAMA_API_KEY=ollama-local
 
 # 시간대 설정
 ENV TZ=Asia/Seoul
