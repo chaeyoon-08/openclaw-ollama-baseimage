@@ -45,12 +45,15 @@ WORK_MODEL=$(echo "${WORKER_MODEL:-$ORCHESTRATOR_MODEL}" | cut -d',' -f1 | tr -d
 NLM_HOME="${NOTEBOOKLM_MCP_CLI_PATH:-/mnt/notebooklm/OpenClaw_Auth}"
 
 # ── Ollama 모델 목록 구성 ────────────────────────────────────────────────────
-# api: "openai-completions" + baseUrl: ".../v1" 사용 이유:
-#   v2026.3.28+ 에서 api:"ollama"가 플러그인 지연 로딩으로 이전되어 gateway 초기화 시
-#   "No API provider registered for api: ollama" 회귀 발생 (openclaw/openclaw#66202)
-#   openai-completions는 빌트인 등록 provider로 모든 버전에서 안정 동작
-# models: [] → OpenClaw이 Ollama /v1 API를 통해 자동 스캔·등록
-log_info "Ollama model list: auto-scan via openai-completions (/v1)"
+# openclaw.json에서 models.providers.ollama 블록을 명시하지 않는 이유:
+#   블록을 명시하는 순간(models:[] 포함) auto-discovery가 비활성화되어 models.json에
+#   등록된 모델만 표시됨 → /models 명령에 1개만 나오는 현상 발생
+#   블록 미정의 + OLLAMA_API_KEY 환경변수(Dockerfile에 설정) → /api/tags 자동 스캔
+#   → 설치된 전체 Ollama 모델이 /models에 표시됨
+# Source: https://docs.openclaw.ai/providers/ollama
+# 주의: api:"openai-completions"는 tool calling을 차단함 (Issue #41328)
+#       api:"ollama" 회귀(Issue #66202)는 2026.4.12에서 발생, 2026.4.11은 정상
+log_info "Ollama model list: auto-discovery via OLLAMA_API_KEY + /api/tags"
 
 # ── Gateway 토큰 ─────────────────────────────────────────────────────────────
 if [ -n "$OPENCLAW_GATEWAY_TOKEN" ]; then
@@ -154,14 +157,7 @@ jq -n \
         },
         models: {
             mode: "merge",
-            providers: {
-                ollama: {
-                    baseUrl: "http://localhost:11434/v1",
-                    apiKey:  "ollama",
-                    api:     "openai-completions",
-                    models:  []
-                }
-            }
+            providers: {}
         },
         tools: {
             web: {

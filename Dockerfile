@@ -31,6 +31,11 @@ ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
 # Ollama bind address (컨테이너 내부 전용)
 ENV OLLAMA_HOST=127.0.0.1:11434
 
+# OpenClaw Ollama auto-discovery 인증 키
+# models.providers.ollama 블록 미정의 시 이 값으로 /api/tags 자동 스캔 활성화
+# Source: https://docs.openclaw.ai/providers/ollama
+ENV OLLAMA_API_KEY=ollama
+
 # 시간대 설정
 ENV TZ=Asia/Seoul
 
@@ -135,10 +140,11 @@ RUN _PW=$(find /opt/uv/tools -name "playwright" -path "*/bin/playwright" 2>/dev/
 # === OpenClaw 설치 ===
 # Source: https://docs.openclaw.ai/install/docker
 # root로 시스템 전역 설치 → /usr/local/bin/openclaw (node 사용자도 gosu로 실행 가능)
-# 2026.4.12 고정: @latest는 버전별 회귀 위험 방지
+# 2026.4.11 고정: 2026.4.12에서 api:"ollama" provider 미등록 회귀 발생 (Issue #66202)
+# 2026.4.12 sidecar gate로 모델 리스팅 지연 문제도 동반
 # 업그레이드 전 반드시 릴리스 노트 및 Ollama provider 이슈 확인
-# Source: https://github.com/openclaw/openclaw/issues/66202 (api:"ollama" 회귀, openai-completions 우회)
-RUN npm install -g openclaw@2026.4.12
+# Source: https://github.com/openclaw/openclaw/issues/66202
+RUN npm install -g openclaw@2026.4.11
 
 # === shell MCP 서버 설치 ===
 # Source: https://github.com/mako10k/mcp-shell-server
