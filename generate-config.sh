@@ -109,7 +109,7 @@ _OLLAMA_MODEL_IDS="[]"
 
 if [ "$ORCH_PROVIDER" = "ollama" ]; then
     _m=$(echo "$ORCHESTRATOR_MODEL" | cut -d'/' -f2-)
-    _OLLAMA_MODEL_IDS=$(echo "$_OLLAMA_MODEL_IDS" | jq --arg id "$_m" '. + [{"name": $id}]')
+    _OLLAMA_MODEL_IDS=$(echo "$_OLLAMA_MODEL_IDS" | jq --arg id "$_m" '. + [{"id": $id, "name": $id}]')
 fi
 
 if [ -n "$WORKER_MODEL" ]; then
@@ -119,9 +119,9 @@ if [ -n "$WORKER_MODEL" ]; then
         _wp=$(echo "$_wm" | cut -d'/' -f1)
         _wmid=$(echo "$_wm" | cut -d'/' -f2-)
         if [ "$_wp" = "ollama" ]; then
-            _DUP=$(echo "$_OLLAMA_MODEL_IDS" | jq --arg id "$_wmid" '[.[] | select(.name == $id)] | length')
+            _DUP=$(echo "$_OLLAMA_MODEL_IDS" | jq --arg id "$_wmid" '[.[] | select(.id == $id)] | length')
             [ "$_DUP" = "0" ] && \
-                _OLLAMA_MODEL_IDS=$(echo "$_OLLAMA_MODEL_IDS" | jq --arg id "$_wmid" '. + [{"name": $id}]')
+                _OLLAMA_MODEL_IDS=$(echo "$_OLLAMA_MODEL_IDS" | jq --arg id "$_wmid" '. + [{"id": $id, "name": $id}]')
         fi
     done
 fi
@@ -130,7 +130,7 @@ if [ "$(echo "$_OLLAMA_MODEL_IDS" | jq 'length')" -gt 0 ]; then
     _PROVIDERS_JSON=$(echo "$_PROVIDERS_JSON" | jq \
         --argjson models "$_OLLAMA_MODEL_IDS" \
         '. + {"ollama": {"api": "ollama", "baseUrl": "http://127.0.0.1:11434", "apiKey": "ollama-local", "models": $models}}')
-    log_info "Ollama models registered: $(echo "$_OLLAMA_MODEL_IDS" | jq -r '[.[].id] | join(", ")')"
+    log_info "Ollama models registered: $(echo "$_OLLAMA_MODEL_IDS" | jq -r '[.[].name] | join(", ")')"
 fi
 
 # ── Heartbeat 설정 결정 ──────────────────────────────────────────────────────
