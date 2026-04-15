@@ -34,13 +34,24 @@
 
 ## 현재 모델 확인
 
-사용자가 사용 중인 모델을 물으면 shell 도구로 즉시 확인해서 알려준다:
+사용자가 사용 중인 모델을 물으면 shell 도구를 **실제로 호출**하여 즉시 확인한다:
 
-```bash
-echo "Orchestrator: $ORCHESTRATOR_MODEL / Worker: $WORKER_MODEL"
+```
+shell 도구 호출:
+  명령어: echo "Orchestrator=$ORCHESTRATOR_MODEL | Worker=$WORKER_MODEL"
 ```
 
-"알 수 없다", "시스템 내부 정보에 접근할 수 없다" 등의 답변 금지. 환경변수로 항상 확인 가능하다.
+설치된 Ollama 모델 전체 목록이 필요하면:
+
+```
+shell 도구 호출:
+  명령어: ollama list
+```
+
+**금지**: 위 명령어를 텍스트로만 출력하고 기다리는 것. 반드시 shell 도구를 호출해야 한다.  
+**금지**: "알 수 없다", "시스템 내부 정보에 접근할 수 없다" 등의 답변. 환경변수로 항상 확인 가능하다.
+
+Ollama 명령 실행의 자세한 절차는 `skills/ollama/ollama-exec.md`를 참조한다.
 
 ---
 
@@ -250,33 +261,44 @@ openclaw plugins install [패키지명]
 
 ## Ollama 모델 동적 추가
 
-사용자가 새 모델 추가를 요청하거나, 작업에 더 적합한 모델이 필요하다고 판단되면 다음 절차를 따른다.
+사용자가 새 모델 추가를 요청하거나, 작업에 더 적합한 모델이 필요하다고 판단되면 **반드시 ollama-exec 스킬을 사용한다**.
 
-### 현재 모델 목록 확인
+### 기본 실행 스킬
 
-```bash
-ollama list
+모든 Ollama 명령 실행은 `skills/ollama/ollama-exec.md` 절차를 따른다.
+
 ```
+filesystem 도구 호출:
+  read_file("/home/node/.openclaw/workspace/skills/ollama/ollama-exec.md")
+```
+
+스킬 파일을 읽을 때는 shell MCP로 cat 명령을 사용한다:
+
+```
+shell 도구 호출:
+  명령어: cat /home/node/.openclaw/workspace/skills/ollama/ollama-exec.md
+```
+
+스킬 파일이 명시한 대로 **shell 도구를 실제로 호출**하여 실행한다.  
+텍스트로 명령어만 출력하는 것은 실행이 아니다.
 
 ### 새 모델 추가 절차
 
-```bash
-# 1. 모델 다운로드 (백그라운드 또는 포그라운드)
-ollama pull <model>:<tag>
+1. `ollama list`로 현재 모델 목록 확인 (ollama-exec 스킬 사용)
+2. `ollama pull <model>:<tag>` 실행 (대용량 → sessions_spawn 위임)
+3. 다운로드 완료 후 `reload.sh` 실행하여 gateway 재등록
 
-# 2. 다운로드 완료 후 gateway에 등록
-reload.sh
-```
-
-- `reload.sh`는 `generate-config.sh`를 재실행하고 gateway를 재시작한다
-- gateway가 재시작되면 Ollama에 있는 모든 모델을 자동 스캔하여 등록한다
+- `reload.sh` 실행 시 gateway가 잠시 재시작된다 — 진행 중인 세션이 있으면 사용자에게 미리 알릴 것
 - `.env` 수정 없이도 새 모델이 즉시 사용 가능해진다
 
-### 주의사항
+### 추가 지침
 
-- `ollama pull`은 용량이 크므로 (수 GB) 장기 작업이다 — `sessions_spawn`으로 위임하거나 백그라운드에서 실행하라
-- `reload.sh` 실행 시 gateway가 잠시 재시작된다 — 진행 중인 세션이 있으면 사용자에게 미리 알릴 것
-- 다운로드 진행률은 `ollama list`로 확인 가능하다 (다운로드 중인 모델은 목록에 표시됨)
+Ollama 관련 작업에서 추가 절차나 오류 처리가 필요하면:
+
+```
+shell 도구 호출:
+  명령어: cat /home/node/.openclaw/workspace/skills/ollama/GUIDE.md
+```
 
 ---
 
@@ -286,6 +308,20 @@ reload.sh
 - **능동적 실행**: 사용자 의도를 파악했으면 허락을 기다리지 않고 바로 행동한다. 조회·검색·읽기는 항상 즉시 실행한다
 - **기억 유지**: 사용자가 알려준 선호사항, 컨벤션, 결정사항은 즉시 MEMORY.md에 기록한다
 - **간결한 응답**: 도구 실행 결과를 먼저 보여주고, 설명은 그 뒤에 짧게 붙인다
+
+### 할루시네이션 방지 — 도구 실행 규칙
+
+**shell 도구를 호출하지 않고 명령 결과를 직접 작성하는 것은 규칙 위반이다.**
+
+| 금지 행동 | 올바른 행동 |
+|---|---|
+| 코드 블록에 `ollama list` 결과를 직접 작성 | shell 도구를 호출하여 실제 결과 반환 |
+| `tool_code: ollama list` 형태로 텍스트 출력 | shell 도구를 실제로 호출 |
+| "현재 모델은 X입니다"를 확인 없이 말하기 | shell 도구로 확인 후 결과 전달 |
+| 환경변수 값을 추측하여 답변 | shell 도구로 `echo $VAR` 실행 후 답변 |
+
+도구 실행 결과가 예상과 다르거나 형식이 이상하면 — 결과를 수정하지 말고 그대로 전달한 뒤, 이상한 점을 사용자에게 보고한다.  
+도구 호출 자체가 실패하면 — 자체적으로 결과를 생성하지 말고 "도구 실행 실패"로 보고한다.
 
 ---
 

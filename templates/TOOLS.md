@@ -100,6 +100,19 @@ bash /usr/local/bin/reload.sh
 
 ---
 
+## 스킬: ollama-exec
+
+Ollama 명령 실행이 필요할 때 사용하는 스킬. shell MCP 도구를 통해 실행하고 결과를 채팅창에 전달한다.
+
+**발동 조건:** 모델 목록 조회, 모델 다운로드, 상태 확인, 환경변수 확인 등 모든 Ollama 관련 명령 실행 시.
+
+**핵심 원칙:** shell 도구를 실제로 호출해야 한다. 명령어를 텍스트로만 출력하는 것은 실행이 아니다.
+
+**상세 절차:** `skills/ollama/ollama-exec.md` 참조  
+**추가 지침:** `skills/ollama/GUIDE.md` 참조
+
+---
+
 ## 스킬: nlm-login
 
 NotebookLM MCP 인증이 만료되었을 때 gcube 서버에서 직접 재인증하는 스킬.
@@ -120,13 +133,16 @@ bash /usr/local/bin/nlm-reauth-start.sh
 NotebookLM 재인증 준비됐습니다.
 SSH 터널을 열고 브라우저에서 Google 로그인을 진행해 주세요.
 
-1. 로컬 터미널: ssh -L 6080:localhost:6080 <gcube-user>@<gcube-ip>
-2. 브라우저: http://localhost:6080/vnc.html
+1. [로컬 PC 터미널 새 창] SSH 터널 연결:
+   ssh -p <SSH접속포트> -L 6080:localhost:6080 <사용자아이디>@entry.gcube.ai
+   (gcube 포털 → 워크로드 → SSH 접속 정보에서 포트/아이디/비밀번호 확인)
+
+2. [로컬 브라우저] http://localhost:6080/vnc.html 접속
+
 3. 화면에서 Google 계정으로 로그인
+
 4. 로그인 완료 후 이 채팅에 "완료"라고 입력해 주세요.
 ```
-
-gcube 접속 방법을 모르면: "gcube SSH 접속 방법을 알려주세요." 라고 사용자에게 물어본다.
 
 ### [3단계] 사용자가 "완료"라고 하면 — 인증 파일 저장 + 정리
 

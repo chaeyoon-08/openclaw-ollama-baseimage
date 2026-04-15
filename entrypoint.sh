@@ -294,6 +294,14 @@ mkdir -p "$WORKSPACE"
 cp /templates/AGENTS.md      "$WORKSPACE/AGENTS.md"
 cp /templates/CONSTRAINTS.md "$WORKSPACE/CONSTRAINTS.md" 2>/dev/null || true
 cp /templates/TOOLS.md       "$WORKSPACE/TOOLS.md"
+
+# 스킬 디렉토리: 재배포마다 최신 이미지 버전으로 갱신
+# 서브 에이전트 실행 스킬 모음 (skills/ollama/, skills/nlm/ 등)
+if [ -d "/templates/skills" ]; then
+    rm -rf "$WORKSPACE/skills"
+    cp -r /templates/skills "$WORKSPACE/skills"
+    log_ok "Skills directory updated (skills/)"
+fi
 log_ok "System templates updated (AGENTS.md, CONSTRAINTS.md, TOOLS.md)"
 
 # 사용자 데이터 파일: MEMORY.md를 sentinel로 최초 실행 여부 판단
