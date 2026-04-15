@@ -17,14 +17,14 @@ AGENTS.md에서 Ollama 작업이 필요할 때 이 폴더를 참조한다.
 
 ## 스킬 파일 읽는 방법
 
-shell MCP로 스킬 파일을 읽어 절차를 확인한다:
+`shell_execute` 도구로 스킬 파일을 읽어 절차를 확인한다:
 
 ```
-shell 도구 호출:
-  명령어: cat /home/node/.openclaw/workspace/skills/ollama/ollama-exec.md
+tool: shell_execute
+command: "cat /home/node/.openclaw/workspace/skills/ollama/ollama-exec.md"
 ```
 
-(filesystem MCP는 /workspace 만 서빙하므로 openclaw workspace 파일은 shell cat 사용)
+(filesystem MCP는 /workspace 만 서빙하므로 openclaw workspace 파일은 shell_execute cat 사용)
 
 ---
 

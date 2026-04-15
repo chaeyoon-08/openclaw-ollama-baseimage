@@ -14,11 +14,11 @@
 
 ## 핵심 원칙 (반드시 준수)
 
-**shell MCP 도구를 실제로 호출해야 한다. 명령어를 텍스트로만 출력하는 것은 실행이 아니다.**
+**`shell_execute` 도구를 실제로 호출해야 한다. 명령어를 텍스트로만 출력하는 것은 실행이 아니다.**
 
 | 올바른 실행 | 금지 행동 |
 |---|---|
-| shell 도구를 호출하여 실제 결과 반환 | 코드 블록 안에 명령어를 텍스트로 출력 |
+| `shell_execute` 도구를 호출하여 실제 결과 반환 | 코드 블록 안에 명령어를 텍스트로 출력 |
 | 도구가 반환한 결과를 그대로 사용 | 결과를 자체적으로 작성하거나 추측 |
 | 실제 출력 형식과 다르면 재시도 | 출력 형식이 달라도 그냥 전달 |
 
@@ -37,22 +37,22 @@
 
 ---
 
-## [1단계] shell 도구 호출
+## [1단계] shell_execute 도구 호출
 
-shell MCP의 실행 도구로 명령어를 실행한다.
+shell MCP의 `shell_execute` 도구를 사용한다. 파라미터 이름은 `command`.
 
 **모델 목록 조회 예시:**
 
 ```
-shell 도구 호출:
-  명령어: ollama list
+tool: shell_execute
+command: "ollama list"
 ```
 
 **환경변수 확인 예시:**
 
 ```
-shell 도구 호출:
-  명령어: echo "Orchestrator=$ORCHESTRATOR_MODEL | Worker=$WORKER_MODEL"
+tool: shell_execute
+command: "echo \"Orchestrator=$ORCHESTRATOR_MODEL | Worker=$WORKER_MODEL\""
 ```
 
 **절대 금지 — 아래처럼 텍스트만 출력하고 기다리지 말 것:**
@@ -64,7 +64,7 @@ ollama list 를 실행합니다.
 tool_code: ollama list
 ```
 
-위 두 형태는 도구 실행이 아니다. 실제 shell 도구를 호출하지 않으면 아무것도 실행되지 않는다.
+위 형태는 도구 실행이 아니다. 반드시 `shell_execute` 도구를 실제로 호출해야 한다.
 
 ---
 
@@ -82,7 +82,7 @@ gemma4:latest           789xyz012345    15 GB     3 hours ago
 - ID는 12자리 16진수
 - MODIFIED는 상대 시간 (`X hours ago`, `X days ago`)
 
-**도구 결과가 위 형식과 다르면**: 도구를 제대로 호출하지 않은 것이다. 다시 shell 도구를 호출하라.  
+**도구 결과가 위 형식과 다르면**: 도구를 제대로 호출하지 않은 것이다. 다시 `shell_execute`를 호출하라.  
 **자체적으로 결과를 작성하는 것 금지**: 모르면 "도구 실행 실패"라고 보고한다.
 
 ---
@@ -124,8 +124,8 @@ sessions_spawn(
 ### 소형 모델 (직접 실행 가능)
 
 ```
-shell 도구 호출:
-  명령어: ollama pull <모델명>
+tool: shell_execute
+command: "ollama pull <모델명>"
 ```
 
 ---
@@ -137,6 +137,6 @@ shell 도구 호출:
 | `connection refused` | Ollama 서버 미실행 | `ollama serve` 실행 후 재시도 |
 | `model not found` | 잘못된 모델명 또는 태그 | `ollama list`로 정확한 이름 확인 |
 | `no space left on device` | 디스크 공간 부족 | 사용자에게 공간 확보 요청 |
-| shell 도구 응답 없음 | MCP 연결 문제 | `reload.sh` 실행 후 재시도 |
+| `shell_execute` 응답 없음 | MCP 연결 문제 | `reload.sh` 실행 후 재시도 |
 
 오류 발생 시 자체적으로 결과를 추측하지 말고 오류 내용을 그대로 사용자에게 보고한다.

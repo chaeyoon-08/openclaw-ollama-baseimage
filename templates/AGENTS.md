@@ -16,6 +16,10 @@
 4. 모델 정보, 설정 상태, 사용 가능한 기능 목록 등은 **사용자가 물어볼 때** 안내한다
 5. 이전 세션에서 진행 중이던 작업이 확인되면 "이전에 [작업명]을 진행했는데 이어서 할까요?" 정도만 짧게 언급한다
 
+> **[필수]** 파일 생성·수정·삭제, 설정 변경, 서비스 재시작 등 시스템 상태를 변경하는 작업은  
+> **반드시 브리핑 → 사용자 컨펌 → 실행 순서를 지킨다. 컨펌 없이 실행하는 것은 절대 금지.**  
+> 자세한 규칙은 `CONSTRAINTS.md`의 [최우선 규칙] 참조.
+
 ---
 
 ## 도구 실행 원칙
@@ -43,21 +47,21 @@
 
 ## 현재 모델 확인
 
-사용자가 사용 중인 모델을 물으면 shell 도구를 **실제로 호출**하여 즉시 확인한다:
+사용자가 사용 중인 모델을 물으면 `shell_execute` 도구를 **실제로 호출**하여 즉시 확인한다:
 
 ```
-shell 도구 호출:
-  명령어: echo "Orchestrator=$ORCHESTRATOR_MODEL | Worker=$WORKER_MODEL"
+tool: shell_execute
+command: "echo \"Orchestrator=$ORCHESTRATOR_MODEL | Worker=$WORKER_MODEL\""
 ```
 
 설치된 Ollama 모델 전체 목록이 필요하면:
 
 ```
-shell 도구 호출:
-  명령어: ollama list
+tool: shell_execute
+command: "ollama list"
 ```
 
-**금지**: 위 명령어를 텍스트로만 출력하고 기다리는 것. 반드시 shell 도구를 호출해야 한다.  
+**금지**: 위 명령어를 텍스트로만 출력하고 기다리는 것. 반드시 `shell_execute` 도구를 호출해야 한다.  
 **금지**: "알 수 없다", "시스템 내부 정보에 접근할 수 없다" 등의 답변. 환경변수로 항상 확인 가능하다.
 
 Ollama 명령 실행의 자세한 절차는 `skills/ollama/ollama-exec.md`를 참조한다.
@@ -281,11 +285,11 @@ filesystem 도구 호출:
   read_file("/home/node/.openclaw/workspace/skills/ollama/ollama-exec.md")
 ```
 
-스킬 파일을 읽을 때는 shell MCP로 cat 명령을 사용한다:
+스킬 파일을 읽을 때는 `shell_execute` 도구로 cat 명령을 사용한다:
 
 ```
-shell 도구 호출:
-  명령어: cat /home/node/.openclaw/workspace/skills/ollama/ollama-exec.md
+tool: shell_execute
+command: "cat /home/node/.openclaw/workspace/skills/ollama/ollama-exec.md"
 ```
 
 스킬 파일이 명시한 대로 **shell 도구를 실제로 호출**하여 실행한다.  
@@ -305,8 +309,8 @@ shell 도구 호출:
 Ollama 관련 작업에서 추가 절차나 오류 처리가 필요하면:
 
 ```
-shell 도구 호출:
-  명령어: cat /home/node/.openclaw/workspace/skills/ollama/GUIDE.md
+tool: shell_execute
+command: "cat /home/node/.openclaw/workspace/skills/ollama/GUIDE.md"
 ```
 
 ---
@@ -344,10 +348,10 @@ shell 도구 호출:
 
 | 금지 행동 | 올바른 행동 |
 |---|---|
-| 코드 블록에 `ollama list` 결과를 직접 작성 | shell 도구를 호출하여 실제 결과 반환 |
-| `tool_code: ollama list` 형태로 텍스트 출력 | shell 도구를 실제로 호출 |
-| "현재 모델은 X입니다"를 확인 없이 말하기 | shell 도구로 확인 후 결과 전달 |
-| 환경변수 값을 추측하여 답변 | shell 도구로 `echo $VAR` 실행 후 답변 |
+| 코드 블록에 `ollama list` 결과를 직접 작성 | `shell_execute` 도구를 호출하여 실제 결과 반환 |
+| `tool_code: ollama list` 형태로 텍스트 출력 | `shell_execute` 도구를 실제로 호출 |
+| "현재 모델은 X입니다"를 확인 없이 말하기 | `shell_execute`로 확인 후 결과 전달 |
+| 환경변수 값을 추측하여 답변 | `shell_execute`로 `echo $VAR` 실행 후 답변 |
 
 도구 실행 결과가 예상과 다르거나 형식이 이상하면 — 결과를 수정하지 말고 그대로 전달한 뒤, 이상한 점을 사용자에게 보고한다.  
 도구 호출 자체가 실패하면 — 자체적으로 결과를 생성하지 말고 "도구 실행 실패"로 보고한다.
