@@ -327,6 +327,27 @@ bash /usr/local/bin/generate-config.sh
 chown node:node "$CONFIG_FILE"
 OPENCLAW_TOKEN=$(jq -r '.gateway.auth.token' "$CONFIG_FILE")
 
+# ── 8.5. Ollama auth-profiles.json 생성 ─────────────────────────────────────
+# Known bug: OLLAMA_API_KEY 환경변수만으로는 gateway Config overwrite 이후
+# Ollama 인증이 끊기는 현상 발생 (Issue #3740, #28927, #50759)
+# auth-profiles.json 명시 등록으로 인증 안정화 (커뮤니티 워크어라운드)
+# Source: https://github.com/openclaw/openclaw/issues/3740
+log_doing "Writing Ollama auth profile (workaround: Issue #3740)"
+cat > /home/node/.openclaw/auth-profiles.json << 'AUTHEOF'
+{
+  "ollama:local": {
+    "type": "token",
+    "provider": "ollama",
+    "token": "ollama"
+  },
+  "lastGood": {
+    "ollama": "ollama:local"
+  }
+}
+AUTHEOF
+chown node:node /home/node/.openclaw/auth-profiles.json
+log_ok "Ollama auth profile written"
+
 # ── 9. Stale session lock 파일 정리 ─────────────────────────────────────────
 # 컨테이너 재시작 시 이전 인스턴스 PID는 무효화됨 → .lock 파일이 잔류하면
 # 새 세션 요청이 "session file locked (timeout 10000ms)"으로 전부 실패
