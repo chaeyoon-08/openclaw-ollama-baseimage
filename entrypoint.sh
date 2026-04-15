@@ -166,33 +166,15 @@ if [ "$NEEDS_OLLAMA" = "true" ]; then
         log_ok "Model ready: ${_model}"
     }
 
-    # Telegram 알림 전송 (Bot API 직접 호출 — gateway 미경유, 컨테이너 시작 시점에도 동작)
-    _notify_telegram() {
-        local _msg="$1"
-        IFS=',' read -ra _TIDS <<< "$TELEGRAM_ALLOWED_USER_IDS"
-        for _tid in "${_TIDS[@]}"; do
-            _tid=$(echo "$_tid" | tr -d ' ')
-            curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-                -d "chat_id=${_tid}" \
-                --data-urlencode "text=${_msg}" > /dev/null 2>&1 || true
-        done
-    }
-
     # 백그라운드 pull — Worker 모델: 서브 에이전트 실행 시점에 준비되면 충분
-    # 완료 감지: 마커 파일(.pending) 방식 — 각 pull이 파일 생성 후 완료 시 삭제
-    # 마지막 삭제 시점에 gateway reload 한 번 실행 (flock으로 race condition 방지)
-    _BG_MARKS_DIR="/tmp/openclaw-bg-marks"
-    _BG_RELOAD_LOCK="/tmp/openclaw-reload.lock"
-    rm -rf "$_BG_MARKS_DIR" && mkdir -p "$_BG_MARKS_DIR"
-
+    # auto-discovery(OLLAMA_API_KEY + /api/tags) 방식: pull 완료 즉시 자동 인식
+    # gateway reload 불필요 — docs.openclaw.ai/providers/ollama 공식 확인
     _pull_model_bg() {
         local _model="$1"
-        local _mark="${_BG_MARKS_DIR}/${_model//[\/:]/_}.pending"
         if _model_exists "$_model"; then
             log_ok "Model already present (skip): ${_model}"
             return 0
         fi
-        touch "$_mark"
         log_info "Background pull queued: ${_model}"
         (
             _LAST_BUCKET=-1
@@ -217,25 +199,6 @@ if [ "$NEEDS_OLLAMA" = "true" ]; then
                 fi
             done
             log_ok "Model ready (background): ${_model}"
-            _notify_telegram "[Worker 준비 완료] ${_model}"
-            # 마커 삭제 후 pending 개수 확인 — 마지막이면 gateway reload
-            rm -f "$_mark"
-            (
-                flock -x 200
-                _pending=$(find "$_BG_MARKS_DIR" -name "*.pending" 2>/dev/null | wc -l)
-                if [ "$_pending" -eq 0 ]; then
-                    log_info "All worker models ready — reloading gateway..."
-                    _notify_telegram "모든 워커 모델 준비 완료. Gateway 재시작 중 (잠시 대기)..."
-                    bash /usr/local/bin/reload.sh 2>/dev/null || true
-                    # gateway HTTP 응답 확인 후 알림 전송 (reload.sh 완료 ≠ 실제 서비스 준비)
-                    _GW_RETRY=0
-                    until curl -sf "http://localhost:18789/" > /dev/null 2>&1 || [ "$_GW_RETRY" -ge 20 ]; do
-                        sleep 1
-                        _GW_RETRY=$((_GW_RETRY + 1))
-                    done
-                    _notify_telegram "Gateway 재시작 완료. 전체 모델 사용 가능합니다."
-                fi
-            ) 200>"$_BG_RELOAD_LOCK"
         ) &
     }
 

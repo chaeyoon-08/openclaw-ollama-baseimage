@@ -299,10 +299,10 @@ command: "cat /home/node/.openclaw/workspace/skills/ollama-exec/SKILL.md"
 
 1. `ollama list`로 현재 모델 목록 확인 (ollama-exec 스킬 사용)
 2. `ollama pull <model>:<tag>` 실행 (대용량 → sessions_spawn 위임)
-3. 다운로드 완료 후 `reload.sh` 실행하여 gateway 재등록
+3. 다운로드 완료 즉시 자동 인식됨 — gateway reload 불필요
 
-- `reload.sh` 실행 시 gateway가 잠시 재시작된다 — 진행 중인 세션이 있으면 사용자에게 미리 알릴 것
-- `.env` 수정 없이도 새 모델이 즉시 사용 가능해진다
+- auto-discovery(OLLAMA_API_KEY + /api/tags) 방식으로 pull 완료 후 즉시 `/models`에 반영됨
+- `reload.sh`는 `.env` 수정 등 설정 변경 시에만 사용할 것
 
 ### 추가 지침
 
