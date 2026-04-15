@@ -109,7 +109,7 @@ _OLLAMA_MODEL_IDS="[]"
 
 if [ "$ORCH_PROVIDER" = "ollama" ]; then
     _m=$(echo "$ORCHESTRATOR_MODEL" | cut -d'/' -f2-)
-    _OLLAMA_MODEL_IDS=$(echo "$_OLLAMA_MODEL_IDS" | jq --arg id "$_m" '. + [{"id": $id}]')
+    _OLLAMA_MODEL_IDS=$(echo "$_OLLAMA_MODEL_IDS" | jq --arg id "$_m" '. + [{"name": $id}]')
 fi
 
 if [ -n "$WORKER_MODEL" ]; then
@@ -119,9 +119,9 @@ if [ -n "$WORKER_MODEL" ]; then
         _wp=$(echo "$_wm" | cut -d'/' -f1)
         _wmid=$(echo "$_wm" | cut -d'/' -f2-)
         if [ "$_wp" = "ollama" ]; then
-            _DUP=$(echo "$_OLLAMA_MODEL_IDS" | jq --arg id "$_wmid" '[.[] | select(.id == $id)] | length')
+            _DUP=$(echo "$_OLLAMA_MODEL_IDS" | jq --arg id "$_wmid" '[.[] | select(.name == $id)] | length')
             [ "$_DUP" = "0" ] && \
-                _OLLAMA_MODEL_IDS=$(echo "$_OLLAMA_MODEL_IDS" | jq --arg id "$_wmid" '. + [{"id": $id}]')
+                _OLLAMA_MODEL_IDS=$(echo "$_OLLAMA_MODEL_IDS" | jq --arg id "$_wmid" '. + [{"name": $id}]')
         fi
     done
 fi
