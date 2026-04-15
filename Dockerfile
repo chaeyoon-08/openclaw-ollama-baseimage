@@ -135,7 +135,10 @@ RUN _PW=$(find /opt/uv/tools -name "playwright" -path "*/bin/playwright" 2>/dev/
 # === OpenClaw 설치 ===
 # Source: https://docs.openclaw.ai/install/docker
 # root로 시스템 전역 설치 → /usr/local/bin/openclaw (node 사용자도 gosu로 실행 가능)
-RUN npm install -g openclaw@latest
+# 2026.4.12 고정: @latest는 버전별 회귀 위험 방지
+# 업그레이드 전 반드시 릴리스 노트 및 Ollama provider 이슈 확인
+# Source: https://github.com/openclaw/openclaw/issues/66202 (api:"ollama" 회귀, openai-completions 우회)
+RUN npm install -g openclaw@2026.4.12
 
 # === shell MCP 서버 설치 ===
 # Source: https://github.com/mako10k/mcp-shell-server

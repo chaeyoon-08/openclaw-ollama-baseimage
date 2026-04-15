@@ -45,10 +45,12 @@ WORK_MODEL=$(echo "${WORKER_MODEL:-$ORCHESTRATOR_MODEL}" | cut -d',' -f1 | tr -d
 NLM_HOME="${NOTEBOOKLM_MCP_CLI_PATH:-/mnt/notebooklm/OpenClaw_Auth}"
 
 # ── Ollama 모델 목록 구성 ────────────────────────────────────────────────────
-# models: [] → OpenClaw이 Ollama API를 통해 자동 스캔·등록
-# 명시적 객체 배열 형식(v2026.4.x 신규 스키마)은 구현 복잡도가 높아 자동 스캔 방식 유지
-# 워커 모델 인식 지연 이슈(Config overwrite)는 openclaw/openclaw#27252 수정 이후 동작 확인 필요
-log_info "Ollama model list: auto-scan (models: [])"
+# api: "openai-completions" + baseUrl: ".../v1" 사용 이유:
+#   v2026.3.28+ 에서 api:"ollama"가 플러그인 지연 로딩으로 이전되어 gateway 초기화 시
+#   "No API provider registered for api: ollama" 회귀 발생 (openclaw/openclaw#66202)
+#   openai-completions는 빌트인 등록 provider로 모든 버전에서 안정 동작
+# models: [] → OpenClaw이 Ollama /v1 API를 통해 자동 스캔·등록
+log_info "Ollama model list: auto-scan via openai-completions (/v1)"
 
 # ── Gateway 토큰 ─────────────────────────────────────────────────────────────
 if [ -n "$OPENCLAW_GATEWAY_TOKEN" ]; then
@@ -154,9 +156,9 @@ jq -n \
             mode: "merge",
             providers: {
                 ollama: {
-                    baseUrl: "http://localhost:11434",
+                    baseUrl: "http://localhost:11434/v1",
                     apiKey:  "ollama",
-                    api:     "ollama",
+                    api:     "openai-completions",
                     models:  []
                 }
             }
