@@ -1,420 +1,82 @@
 #!/bin/bash
-# entrypoint.sh — openclaw multi-agent 컨테이너 자동 설정 스크립트
+# entrypoint.sh — openclaw-mcp-hub 컨테이너 진입점
+#
+# 역할: 외부 서비스 인증이 필요한 MCP 서버들을 SSE 서버로 기동.
+#       OpenClaw(main 컨테이너)와 동일 Pod 내 localhost 통신.
+#
+# 기동 순서:
+#   1. NotebookLM 인증 경로 심링크 (gcube 볼륨 → ~/.notebooklm-mcp-cli)
+#   2. notebooklm MCP 서버 SSE 기동 (supergateway, 포트 3100)
+#
+# 재인증 필요 시:
+#   bash /usr/local/bin/nlm-reauth-start.sh  → noVNC(6080) + nlm login 기동
+#   bash /usr/local/bin/nlm-reauth-finish.sh → 인증 파일 저장 + noVNC 정리
 #
 # References:
-#   Ollama serve:            https://docs.ollama.com/linux
-#   OpenClaw config:         https://docs.openclaw.ai/gateway/configuration-reference
-#   OpenClaw Telegram:       https://docs.openclaw.ai/channels/telegram
-#   OpenClaw gateway CLI:    https://docs.openclaw.ai/cli/gateway
-#   gosu (user switch):      https://github.com/tianon/gosu
-#
-# 환경변수 필수: TELEGRAM_BOT_TOKEN, TELEGRAM_ALLOWED_USER_IDS, ORCHESTRATOR_MODEL
-# 환경변수 선택: WORKER_MODEL, MODEL_API_KEY, NOTEBOOKLM_MCP_CLI_PATH, GITHUB_*
+#   notebooklm-mcp-cli: https://github.com/jacob-bd/notebooklm-mcp-cli
+#   supergateway:       https://github.com/supercorp-ai/supergateway
 
 set -e
 
-# ── 로그 함수 ──────────────────────────────────────────────────────────────────
-log_start()  { echo -e "\033[1;34m[ START ]\033[0m $1"; }
-log_doing()  { echo -e "\033[0;36m[ DOING ]\033[0m $1"; }
-log_ok()     { echo -e "\033[0;32m[  OK   ]\033[0m $1"; }
-log_info()   { echo -e "\033[0;37m[ INFO  ]\033[0m $1"; }
-log_warn()   { echo -e "\033[1;33m[ WARN  ]\033[0m $1"; }
-log_error()  { echo -e "\033[0;31m[ ERROR ]\033[0m $1"; }
-log_stop()   { echo -e "\033[1;31m[ STOP  ]\033[0m $1"; exit 1; }
-log_done()   { echo -e "\033[1;32m[ DONE  ]\033[0m $1"; }
+log_start() { echo -e "\033[1;34m[ START ]\033[0m $1"; }
+log_doing() { echo -e "\033[0;36m[ DOING ]\033[0m $1"; }
+log_ok()    { echo -e "\033[0;32m[  OK   ]\033[0m $1"; }
+log_warn()  { echo -e "\033[1;33m[ WARN  ]\033[0m $1"; }
+log_error() { echo -e "\033[0;31m[ ERROR ]\033[0m $1"; }
+log_done()  { echo -e "\033[1;32m[ DONE  ]\033[0m $1"; }
 
-# ── 1. 필수 환경변수 검증 ────────────────────────────────────────────────────
-log_start "Validating environment variables"
-
-# 하위 호환: OLLAMA_MODEL → ORCHESTRATOR_MODEL 자동 변환
-if [ -z "$ORCHESTRATOR_MODEL" ] && [ -n "$OLLAMA_MODEL" ]; then
-    export ORCHESTRATOR_MODEL="ollama/${OLLAMA_MODEL}"
-    log_warn "OLLAMA_MODEL is deprecated. Auto-converted: ORCHESTRATOR_MODEL=${ORCHESTRATOR_MODEL}"
-fi
-
-[ -z "$TELEGRAM_BOT_TOKEN" ]        && log_stop "TELEGRAM_BOT_TOKEN is required"
-[ -z "$TELEGRAM_ALLOWED_USER_IDS" ] && log_stop "TELEGRAM_ALLOWED_USER_IDS is required"
-[ -z "$ORCHESTRATOR_MODEL" ]        && log_stop "ORCHESTRATOR_MODEL is required (e.g. ollama/qwen3:14b or anthropic/claude-sonnet-4-6)"
-
-# ── Provider 감지 ──────────────────────────────────────────────────────────
-ORCH_PROVIDER=$(echo "$ORCHESTRATOR_MODEL" | cut -d'/' -f1)
-# WORKER_MODEL: 쉼표로 여러 모델 지정 가능. 첫 번째 모델로 provider 판단
-WORK_MODEL_PRIMARY=$(echo "${WORKER_MODEL:-$ORCHESTRATOR_MODEL}" | cut -d',' -f1 | tr -d ' ')
-WORK_PROVIDER=$(echo "$WORK_MODEL_PRIMARY" | cut -d'/' -f1)
-
-log_ok "Required variables present"
-log_ok "  ORCHESTRATOR_MODEL        = ${ORCHESTRATOR_MODEL}"
-log_ok "  WORKER_MODEL              = ${WORKER_MODEL:-$ORCHESTRATOR_MODEL}"
-log_ok "  TELEGRAM_ALLOWED_USER_IDS = ${TELEGRAM_ALLOWED_USER_IDS}"
-
-# ── 요금 폭탄 방어: 유료 Orchestrator + 비-Ollama Worker 조합 차단 ──────────
-# 모든 worker 모델이 ollama여야 함
-if [ "$ORCH_PROVIDER" != "ollama" ]; then
-    IFS=',' read -ra _WM_LIST <<< "${WORKER_MODEL:-$ORCHESTRATOR_MODEL}"
-    for _wm in "${_WM_LIST[@]}"; do
-        _wm=$(echo "$_wm" | tr -d ' ')
-        _wp=$(echo "$_wm" | cut -d'/' -f1)
-        if [ "$_wp" != "ollama" ]; then
-            log_stop "WORKER_MODEL contains non-Ollama model '${_wm}'.
-          All worker models must be ollama when ORCHESTRATOR_MODEL uses a paid provider.
-          Replace '${_wm}' with ollama/<model>:<tag>"
-        fi
-    done
-    # 유료 provider API 키 등록 여부 확인
-    echo "$MODEL_API_KEY" | tr ',' '\n' | grep -q "^${ORCH_PROVIDER}/" \
-        || log_stop "ORCHESTRATOR_MODEL uses provider '${ORCH_PROVIDER}' but no matching MODEL_API_KEY entry found.
-          Add MODEL_API_KEY=${ORCH_PROVIDER}/<your-api-key>"
-fi
-
-# Ollama 필요 여부 판단 (ORCHESTRATOR 또는 WORKER 중 하나라도 ollama이면 시작)
-NEEDS_OLLAMA=false
-[ "$ORCH_PROVIDER" = "ollama" ] && NEEDS_OLLAMA=true
-IFS=',' read -ra _WM_CHECK <<< "${WORKER_MODEL:-$ORCHESTRATOR_MODEL}"
-for _wm in "${_WM_CHECK[@]}"; do
-    [ "$(echo "$_wm" | tr -d ' ' | cut -d'/' -f1)" = "ollama" ] && NEEDS_OLLAMA=true
-done
-
-# ── 2. GitHub 설정 (선택) ────────────────────────────────────────────────────
-# GITHUB_USERNAME + GITHUB_EMAIL 이 모두 있을 때만 실행
-if [ -n "$GITHUB_USERNAME" ] && [ -n "$GITHUB_EMAIL" ]; then
-    log_start "Configuring GitHub"
-
-    git config --global user.name  "$GITHUB_USERNAME"
-    git config --global user.email "$GITHUB_EMAIL"
-    log_ok "git user: ${GITHUB_USERNAME} <${GITHUB_EMAIL}>"
-
-    if [ -n "$GITHUB_TOKEN" ]; then
-        git config --global credential.helper store
-        echo "https://${GITHUB_USERNAME}:${GITHUB_TOKEN}@github.com" \
-            > /root/.git-credentials
-        chmod 600 /root/.git-credentials
-        log_ok "GitHub token stored"
-    else
-        log_info "GITHUB_TOKEN not set — git push will require manual auth"
-    fi
-
-    if [ -n "$GITHUB_REPO_URL" ]; then
-        log_doing "Cloning repo: ${GITHUB_REPO_URL}"
-        if [ -d "/workspace/.git" ]; then
-            log_info "/workspace already has a git repo — skipping clone"
-        else
-            git clone "$GITHUB_REPO_URL" /workspace
-            log_ok "Cloned into /workspace"
-        fi
-    else
-        log_info "GITHUB_REPO_URL not set — skipping clone"
-    fi
-else
-    log_info "GITHUB_USERNAME / GITHUB_EMAIL not set — skipping GitHub setup"
-fi
-
-# ── 3. Ollama 서비스 시작 (필요 시만) ───────────────────────────────────────
-if [ "$NEEDS_OLLAMA" = "true" ]; then
-    log_start "Starting Ollama service"
-    ollama serve &
-    OLLAMA_PID=$!
-
-    log_doing "Waiting for Ollama API..."
-    RETRY=0
-    until curl -sf http://localhost:11434/ > /dev/null 2>&1; do
-        sleep 1
-        RETRY=$((RETRY + 1))
-        [ $RETRY -ge 60 ] && log_stop "Ollama did not start within 60 seconds"
-    done
-    log_ok "Ollama is ready"
-
-    # ── 4. Ollama 모델 다운로드 ──────────────────────────────────────────────
-    # REST API pull: CLI는 non-TTY에서 \r→줄바꿈으로 로그 폭발. API 스트리밍으로 대체.
-    # Source: https://github.com/ollama/ollama/blob/main/docs/api.md#pull-a-model
-
-    # 모델 존재 여부 확인: 이미 있으면 pull 건너뜀 (재시작 후 재다운로드 방지)
-    _model_exists() {
-        curl -sf http://localhost:11434/api/tags \
-        | jq -r '.models[].name' 2>/dev/null \
-        | grep -qxF "$1"
-    }
-
-    # 동기 pull — Orchestrator 모델: 봇 시작 전 반드시 준비 완료
-    _pull_model() {
-        local _model="$1"
-        if _model_exists "$_model"; then
-            log_ok "Model already present (skip): ${_model}"
-            return 0
-        fi
-        log_doing "Pulling Ollama model: ${_model}"
-        _LAST_BUCKET=-1
-        curl -sf -X POST http://localhost:11434/api/pull \
-            -d "{\"name\":\"${_model}\"}" \
-        | while IFS= read -r line; do
-            STATUS=$(printf '%s' "$line" | jq -r '.status    // empty' 2>/dev/null)
-            TOTAL=$( printf '%s' "$line" | jq -r '.total     // 0'     2>/dev/null)
-            DONE=$(  printf '%s' "$line" | jq -r '.completed // 0'     2>/dev/null)
-            if [ "${TOTAL:-0}" -gt 0 ] 2>/dev/null; then
-                PCT=$(( DONE * 100 / TOTAL ))
-                BUCKET=$(( PCT / 10 * 10 ))
-                if [ "$BUCKET" -ne "$_LAST_BUCKET" ]; then
-                    _LAST_BUCKET=$BUCKET
-                    log_doing "  ${STATUS}: ${BUCKET}%"
-                fi
-            elif [ -n "$STATUS" ]; then
-                case "$STATUS" in
-                    "pulling manifest"|"verifying sha256 digest"|"writing manifest"|"success")
-                        log_doing "  ${STATUS}";;
-                esac
-            fi
-        done
-        log_ok "Model ready: ${_model}"
-    }
-
-    # Telegram 알림 전송 (Bot API 직접 호출 — gateway 미경유, 컨테이너 시작 시점에도 동작)
-    _notify_telegram() {
-        local _msg="$1"
-        IFS=',' read -ra _TIDS <<< "$TELEGRAM_ALLOWED_USER_IDS"
-        for _tid in "${_TIDS[@]}"; do
-            _tid=$(echo "$_tid" | tr -d ' ')
-            curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-                -d "chat_id=${_tid}" \
-                --data-urlencode "text=${_msg}" > /dev/null 2>&1 || true
-        done
-    }
-
-    # 백그라운드 pull — Worker 모델: 서브 에이전트 실행 시점에 준비되면 충분
-    # 완료 감지: 마커 파일(.pending) 방식 — 각 pull이 파일 생성 후 완료 시 삭제
-    # 마지막 삭제 시점에 gateway reload 한 번 실행 (flock으로 race condition 방지)
-    _BG_MARKS_DIR="/tmp/openclaw-bg-marks"
-    _BG_RELOAD_LOCK="/tmp/openclaw-reload.lock"
-    rm -rf "$_BG_MARKS_DIR" && mkdir -p "$_BG_MARKS_DIR"
-
-    _pull_model_bg() {
-        local _model="$1"
-        local _mark="${_BG_MARKS_DIR}/${_model//[\/:]/_}.pending"
-        if _model_exists "$_model"; then
-            log_ok "Model already present (skip): ${_model}"
-            return 0
-        fi
-        touch "$_mark"
-        log_info "Background pull queued: ${_model}"
-        (
-            _LAST_BUCKET=-1
-            curl -sf -X POST http://localhost:11434/api/pull \
-                -d "{\"name\":\"${_model}\"}" \
-            | while IFS= read -r line; do
-                STATUS=$(printf '%s' "$line" | jq -r '.status    // empty' 2>/dev/null)
-                TOTAL=$( printf '%s' "$line" | jq -r '.total     // 0'     2>/dev/null)
-                DONE=$(  printf '%s' "$line" | jq -r '.completed // 0'     2>/dev/null)
-                if [ "${TOTAL:-0}" -gt 0 ] 2>/dev/null; then
-                    PCT=$(( DONE * 100 / TOTAL ))
-                    BUCKET=$(( PCT / 10 * 10 ))
-                    if [ "$BUCKET" -ne "$_LAST_BUCKET" ]; then
-                        _LAST_BUCKET=$BUCKET
-                        log_doing "  [bg:${_model}] ${STATUS}: ${BUCKET}%"
-                    fi
-                elif [ -n "$STATUS" ]; then
-                    case "$STATUS" in
-                        "pulling manifest"|"verifying sha256 digest"|"writing manifest"|"success")
-                            log_doing "  [bg:${_model}] ${STATUS}";;
-                    esac
-                fi
-            done
-            log_ok "Model ready (background): ${_model}"
-            _notify_telegram "[Worker 준비 완료] ${_model}"
-            # 마커 삭제 후 pending 개수 확인 — 마지막이면 gateway reload
-            rm -f "$_mark"
-            (
-                flock -x 200
-                _pending=$(find "$_BG_MARKS_DIR" -name "*.pending" 2>/dev/null | wc -l)
-                if [ "$_pending" -eq 0 ]; then
-                    log_info "All worker models ready — reloading gateway..."
-                    _notify_telegram "모든 워커 모델 준비 완료. Gateway 재시작 중 (잠시 대기)..."
-                    bash /usr/local/bin/reload.sh 2>/dev/null || true
-                    # gateway HTTP 응답 확인 후 알림 전송 (reload.sh 완료 ≠ 실제 서비스 준비)
-                    _GW_RETRY=0
-                    until curl -sf "http://localhost:18789/" > /dev/null 2>&1 || [ "$_GW_RETRY" -ge 20 ]; do
-                        sleep 1
-                        _GW_RETRY=$((_GW_RETRY + 1))
-                    done
-                    _notify_telegram "Gateway 재시작 완료. 전체 모델 사용 가능합니다."
-                fi
-            ) 200>"$_BG_RELOAD_LOCK"
-        ) &
-    }
-
-    # Orchestrator 모델 pull (ollama 모델일 때만) — 동기: 봇 시작 전 완료 필수
-    if [ "$ORCH_PROVIDER" = "ollama" ]; then
-        ORCH_MODEL_NAME=$(echo "$ORCHESTRATOR_MODEL" | cut -d'/' -f2-)
-        _pull_model "$ORCH_MODEL_NAME"
-    fi
-
-    # Worker 모델 pull — 백그라운드: 봇 즉시 시작, 다운로드는 병렬 진행
-    # 주의: /root/.ollama 는 컨테이너 재시작 시 초기화됨 (비영속 경로).
-    #       재시작마다 재다운로드를 막으려면 gcube 볼륨으로 /root/.ollama 를 마운트하라.
-    IFS=',' read -ra _WM_PULL <<< "${WORKER_MODEL:-}"
-    for _wm in "${_WM_PULL[@]}"; do
-        _wm=$(echo "$_wm" | tr -d ' ')
-        _wp=$(echo "$_wm" | cut -d'/' -f1)
-        _wmn=$(echo "$_wm" | cut -d'/' -f2-)
-        if [ "$_wp" = "ollama" ] && [ "$_wm" != "$ORCHESTRATOR_MODEL" ]; then
-            _pull_model_bg "$_wmn"
-        fi
-    done
-else
-    log_info "Ollama not required — skipping Ollama start"
-fi
-
-# ── 5. node 사용자 디렉터리 권한 설정 ───────────────────────────────────────
-# root 단계에서 먼저 수행 (gosu 이후에는 chown 불가)
-log_start "Setting up node user environment"
-
-chown -R node:node /home/node/.openclaw
-
-# NOTEBOOKLM_MCP_CLI_PATH 마운트 경로 처리
-# nlm login CLI는 ~/.notebooklm-mcp-cli/ 에 고정 저장하므로
-# gcube 마운트 경로로 심링크 → 컨테이너 재시작 후에도 auth 유지
+# ── 1. NotebookLM 인증 경로 심링크 ──────────────────────────────────────────
+# nlm login CLI는 ~/.notebooklm-mcp-cli/ 에 고정 저장.
+# gcube 볼륨 경로로 심링크하여 컨테이너 재시작 후에도 인증 유지.
 # Source: https://github.com/jacob-bd/notebooklm-mcp-cli/blob/main/docs/AUTHENTICATION.md
+log_start "Setting up NotebookLM auth path"
 NLM_HOME="${NOTEBOOKLM_MCP_CLI_PATH:-/mnt/notebooklm/OpenClaw_Auth}"
-export NOTEBOOKLM_MCP_CLI_PATH="$NLM_HOME"
+rm -rf /root/.notebooklm-mcp-cli
+ln -s "$NLM_HOME" /root/.notebooklm-mcp-cli
 
-if [ -d "$NLM_HOME" ]; then
-    chown -R node:node "$NLM_HOME" 2>/dev/null || true
-    rm -rf /home/node/.notebooklm-mcp-cli
-    ln -s "$NLM_HOME" /home/node/.notebooklm-mcp-cli
-    log_ok "NOTEBOOKLM_MCP_CLI_PATH: ${NLM_HOME} (symlinked)"
+if [ -L /root/.notebooklm-mcp-cli ]; then
+    log_ok "NOTEBOOKLM_MCP_CLI_PATH: $NLM_HOME (symlinked)"
 else
-    log_warn "NOTEBOOKLM_MCP_CLI_PATH not mounted: ${NLM_HOME}"
-    log_warn "  nlm login will use container-local storage (not persistent)"
+    log_warn "Symlink failed — auth may not persist across restarts"
 fi
 
-# ── 6. workspace 템플릿 복사 ────────────────────────────────────────────────
-log_start "Copying workspace templates"
-WORKSPACE="/home/node/.openclaw/workspace"
-mkdir -p "$WORKSPACE"
+# ── 2. notebooklm MCP 서버 (SSE 모드) ───────────────────────────────────────
+# supergateway: stdio MCP 서버를 SSE/HTTP로 변환
+# OpenClaw(main) → http://localhost:3100/sse 로 연결
+# Source: https://github.com/supercorp-ai/supergateway
+log_start "Starting NotebookLM MCP server"
+log_doing "Launching supergateway (SSE port: ${NLM_MCP_PORT:-3100})..."
 
-# 시스템 지침 파일: 재배포마다 항상 최신 이미지 버전으로 갱신
-# (에이전트 행동 규칙이므로 사용자 데이터가 아님 — 덮어쓰기 안전)
-cp /templates/AGENTS.md      "$WORKSPACE/AGENTS.md"
-cp /templates/CONSTRAINTS.md "$WORKSPACE/CONSTRAINTS.md" 2>/dev/null || true
-cp /templates/TOOLS.md       "$WORKSPACE/TOOLS.md"
-log_ok "System templates updated (AGENTS.md, CONSTRAINTS.md, TOOLS.md)"
+supergateway \
+    --stdio "uvx notebooklm-mcp-cli" \
+    --port "${NLM_MCP_PORT:-3100}" \
+    --baseUrl "http://localhost:${NLM_MCP_PORT:-3100}" \
+    --ssePath /sse \
+    --messagePath /message \
+    > /tmp/nlm-mcp.log 2>&1 &
+NLM_MCP_PID=$!
 
-# 사용자 데이터 파일: MEMORY.md를 sentinel로 최초 실행 여부 판단
-# MEMORY.md, SOUL.md는 에이전트가 축적한 기억/성격 → 절대 덮어쓰지 않음
-if [ ! -f "$WORKSPACE/MEMORY.md" ]; then
-    log_ok "First run detected — initializing user data from templates"
-    cp /templates/SOUL.md   "$WORKSPACE/SOUL.md"
-    cp /templates/MEMORY.md "$WORKSPACE/MEMORY.md"
-else
-    log_info "User data preserved (MEMORY.md, SOUL.md)"
+sleep 2
+if ! kill -0 "$NLM_MCP_PID" 2>/dev/null; then
+    log_error "NotebookLM MCP server failed to start. Log:"
+    cat /tmp/nlm-mcp.log 2>/dev/null
+    exit 1
 fi
+log_ok "NotebookLM MCP ready (PID: $NLM_MCP_PID)"
 
-chown -R node:node "$WORKSPACE"
-log_ok "Workspace ready"
-
-# ── 7. 환경변수 → .env 덤프 ──────────────────────────────────────────────────
-# 사용자가 나중에 .env를 직접 수정 + reload.sh로 설정 갱신 가능
-log_doing "Dumping environment variables to .env"
-ENV_FILE="/home/node/.openclaw/.env"
-cat > "$ENV_FILE" << ENVEOF
-# openclaw .env -- 환경변수 설정 파일
-# 수정 후 reload.sh 실행으로 반영: bash /usr/local/bin/reload.sh
-#
-# 필수
-TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN}"
-TELEGRAM_ALLOWED_USER_IDS="${TELEGRAM_ALLOWED_USER_IDS}"
-ORCHESTRATOR_MODEL="${ORCHESTRATOR_MODEL}"
-
-# 선택: Worker 모델 (미설정 시 ORCHESTRATOR_MODEL 상속)
-# ORCHESTRATOR가 유료 모델이면 반드시 ollama/<model>:<tag> 형식으로 지정
-WORKER_MODEL="${WORKER_MODEL:-}"
-
-# 선택: 외부 provider API 키 (provider/key 형식, 쉼표로 여러 개)
-MODEL_API_KEY="${MODEL_API_KEY:-}"
-
-# 선택: Gateway 토큰 (미설정 시 자동 생성, 설정 시 재시작 후에도 유지)
-OPENCLAW_GATEWAY_TOKEN="${OPENCLAW_GATEWAY_TOKEN:-}"
-
-# 선택: NotebookLM 인증 경로 (Dropbox 마운트 경로)
-NOTEBOOKLM_MCP_CLI_PATH="${NLM_HOME}"
-
-# 선택: GitHub
-GITHUB_USERNAME="${GITHUB_USERNAME:-}"
-GITHUB_EMAIL="${GITHUB_EMAIL:-}"
-GITHUB_TOKEN="${GITHUB_TOKEN:-}"
-GITHUB_REPO_URL="${GITHUB_REPO_URL:-}"
-ENVEOF
-chmod 600 "$ENV_FILE"
-chown node:node "$ENV_FILE"
-log_ok ".env written: ${ENV_FILE}"
-
-# ── 8. openclaw.json 생성 (generate-config.sh 호출) ─────────────────────────
-# openclaw.json 항상 재생성: anomaly 상태 제거 → full scope fresh pairing 보장
-# token은 generate-config.sh가 기존 파일에서 먼저 읽어 유지함
-# devices/ 클리어: operator.read로 고정된 pairing 레코드 제거 → fresh pairing 강제
-CONFIG_FILE="/home/node/.openclaw/openclaw.json"
-rm -rf /home/node/.openclaw/devices 2>/dev/null || true
-rm -f  /home/node/.openclaw/openclaw.json.bak 2>/dev/null || true
-bash /usr/local/bin/generate-config.sh
-chown node:node "$CONFIG_FILE"
-OPENCLAW_TOKEN=$(jq -r '.gateway.auth.token' "$CONFIG_FILE")
-
-# ── 9. Stale session lock 파일 정리 ─────────────────────────────────────────
-# 컨테이너 재시작 시 이전 인스턴스 PID는 무효화됨 → .lock 파일이 잔류하면
-# 새 세션 요청이 "session file locked (timeout 10000ms)"으로 전부 실패
-# Source: https://github.com/openclaw/openclaw/issues/27252
-_STALE_LOCKS=$(find /home/node/.openclaw/agents -name "*.lock" 2>/dev/null || true)
-if [ -n "$_STALE_LOCKS" ]; then
-    _LOCK_COUNT=$(echo "$_STALE_LOCKS" | wc -l)
-    find /home/node/.openclaw/agents -name "*.lock" -delete 2>/dev/null || true
-    log_ok "Cleaned ${_LOCK_COUNT} stale session lock file(s)"
-else
-    log_info "No stale session lock files"
-fi
-
-# ── 10. OpenClaw gateway 시작 (node 사용자로 실행) ───────────────────────────
-# Source: https://docs.openclaw.ai/cli/gateway
-# gosu로 root → node 전환하여 보안 실행
-log_start "Starting OpenClaw gateway"
-
-export OPENCLAW_GATEWAY_TOKEN="${OPENCLAW_TOKEN}"
-# OPENCLAW_NO_RESPAWN=1: SIGUSR1 수신 시 새 프로세스 spawn 대신 in-process 재시작
-# 커스텀 supervisor(entrypoint while 루프) 환경에서 이중 인스턴스 → EADDRINUSE 방지
-# Source: https://github.com/openclaw/openclaw/issues/65668
-export OPENCLAW_NO_RESPAWN=1
-gosu node openclaw gateway &
-OPENCLAW_PID=$!
-
-sleep 3
-
-log_done "All services started"
+# ── 완료 ────────────────────────────────────────────────────────────────────
+log_done "MCP hub started"
 echo ""
-echo "  Orchestrator  : ${ORCHESTRATOR_MODEL}"
-echo "  Worker model  : ${WORKER_MODEL:-$ORCHESTRATOR_MODEL}"
-echo "  Gateway token : ${OPENCLAW_TOKEN}"
+echo "  NotebookLM MCP : http://localhost:${NLM_MCP_PORT:-3100}/sse"
+echo "  noVNC (auth)   : port 6080 (run nlm-reauth-start.sh when needed)"
 echo ""
 
-# ── 컨테이너 유지 ────────────────────────────────────────────────────────────
-# SIGTERM 수신 시 openclaw 종료 후 컨테이너 정상 종료
-# openclaw 가 죽으면 자동 재시작 (단, SIGUSR1 자체 재시작은 PID 추적만 갱신)
+# 메인 프로세스 유지 — MCP 서버 종료 시 컨테이너도 종료
 _stop() {
     log_warn "Shutting down..."
-    kill "$OPENCLAW_PID" 2>/dev/null
+    kill "$NLM_MCP_PID" 2>/dev/null
     exit 0
 }
 trap _stop SIGTERM SIGINT
 
-while true; do
-    if ! kill -0 "$OPENCLAW_PID" 2>/dev/null; then
-        # PID 사라짐 — 게이트웨이가 SIGUSR1 자체 재시작했는지 확인
-        sleep 2
-        NEW_PID=$(pgrep -u node -f "openclaw gateway" 2>/dev/null | head -1 || true)
-        if [ -n "$NEW_PID" ]; then
-            # 자체 재시작: 새 PID 추적만 갱신, 재시작 시도 금지 (포트 충돌 방지)
-            log_info "Gateway self-restarted (new PID: ${NEW_PID}) — tracking updated"
-            OPENCLAW_PID="$NEW_PID"
-        else
-            log_warn "OpenClaw gateway stopped, restarting..."
-            gosu node openclaw gateway &
-            OPENCLAW_PID=$!
-        fi
-    fi
-    sleep 3
-done
+wait $NLM_MCP_PID

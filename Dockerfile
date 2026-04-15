@@ -1,77 +1,47 @@
-# Dockerfile — openclaw multi-agent base image
+# Dockerfile — openclaw-mcp-hub
+#
+# 역할: 외부 서비스 인증이 필요한 MCP 서버 전용 컨테이너.
+#       OpenClaw(main 컨테이너)와 동일 Pod 내에서 localhost 통신.
+#
+# 포트:
+#   3100 — notebooklm MCP SSE 엔드포인트 (main 컨테이너 → localhost:3100/sse)
+#   6080 — noVNC 웹 인터페이스 (nlm login 재인증 시 브라우저 접근)
 #
 # References:
-#   CUDA base image:         https://hub.docker.com/r/nvidia/cuda
-#   CUDA release notes:      https://docs.nvidia.com/cuda/cuda-toolkit-release-notes/
-#   Ollama Linux install:    https://docs.ollama.com/linux
-#   OpenClaw install:        https://docs.openclaw.ai/install/docker
-#   Node.js install:         https://github.com/nodesource/distributions
-#   gosu (user switch):      https://github.com/tianon/gosu
-#   uv (Python pkg mgr):     https://docs.astral.sh/uv/
-#   notebooklm-mcp-cli:      https://github.com/jacob-bd/notebooklm-mcp-cli
-#   noVNC (web VNC):         https://github.com/novnc/noVNC
-#   Playwright install:      https://playwright.dev/python/docs/browsers
-#
-# Base: nvidia/cuda:12.8.1-runtime-ubuntu22.04
-#   - CUDA 12.8.1: Pascal(sm_60) ~ Blackwell(sm_120) 전 GPU 지원 (CUDA 13.x부터 Pascal dropped)
-#   - runtime 변형: Ollama는 사전 컴파일 바이너리라 devel 불필요
-#   - Ubuntu 22.04 LTS: 2027년까지 지원
-#   - 최소 호스트 드라이버: >= 570.124.06
+#   uv:                 https://docs.astral.sh/uv/
+#   notebooklm-mcp-cli: https://github.com/jacob-bd/notebooklm-mcp-cli
+#   supergateway:       https://github.com/supermaven-inc/supergateway
+#   noVNC:              https://github.com/novnc/noVNC
+#   Google Chrome deb:  https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
 
-FROM nvidia/cuda:12.8.1-runtime-ubuntu22.04
+FROM ubuntu:22.04
 
-# Prevent interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
-
-# NVIDIA GPU passthrough (Ollama GPU 감지에 필요)
-# Source: https://github.com/ollama/ollama/blob/main/Dockerfile
-ENV NVIDIA_VISIBLE_DEVICES=all
-ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
-
-# Ollama bind address (컨테이너 내부 전용)
-ENV OLLAMA_HOST=127.0.0.1:11434
-
-# 시간대 설정
 ENV TZ=Asia/Seoul
 
-# uv 도구 경로 설정 (notebooklm-mcp-cli 설치 및 실행에 필요)
-# Source: https://docs.astral.sh/uv/concepts/tools/
-# UV_PYTHON_INSTALL_DIR: 미설정 시 /root/.local/share/uv/python/ 에 설치되어
-# node 사용자가 /root 접근 불가 → spawn EACCES 발생. /opt/uv/python 으로 고정.
+# uv 도구 경로
+# UV_PYTHON_INSTALL_DIR: /root 대신 /opt에 설치 → 비root 실행 시 EACCES 방지
 ENV UV_TOOL_DIR=/opt/uv/tools
 ENV UV_TOOL_BIN_DIR=/usr/local/bin
 ENV UV_CACHE_DIR=/opt/uv/cache
 ENV UV_PYTHON_INSTALL_DIR=/opt/uv/python
 
-# Playwright 브라우저 경로: 시스템 전역 위치로 고정
-# node 사용자도 접근 가능하도록 /opt/playwright-browsers 에 설치
-# Source: https://playwright.dev/python/docs/browsers#managing-browser-binaries
-ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
+# notebooklm MCP SSE 포트 (환경변수로 override 가능)
+ENV NLM_MCP_PORT=3100
 
-# === 기본 도구 설치 (gosu 포함) ===
-# gosu: entrypoint에서 root → node 전환으로 openclaw gateway를 비root 실행
-# Source: https://github.com/tianon/gosu
+# === 기본 도구 ===
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     wget \
-    git \
-    nano \
-    vim \
     ca-certificates \
-    build-essential \
     python3 \
     python3-pip \
     jq \
-    zstd \
-    gosu \
     && rm -rf /var/lib/apt/lists/*
 
-# === nlm-login 스킬: 가상 디스플레이 + noVNC 패키지 ===
-# xvfb: 가상 프레임버퍼, x11vnc: VNC 서버, websockify/novnc: 웹 VNC
-# x11vnc, novnc, python3-websockify 는 Ubuntu 22.04 universe 저장소에만 있음
-# software-properties-common 으로 universe 활성화 후 설치
+# === VNC 스택 (nlm login 재인증 시 noVNC 브라우저 접근용) ===
+# x11vnc, novnc, python3-websockify: Ubuntu 22.04 universe 저장소에만 있음
 # Source: https://launchpad.net/ubuntu/jammy/+package/x11vnc
-# Source: https://github.com/novnc/noVNC
 RUN apt-get update && apt-get install -y --no-install-recommends software-properties-common \
     && add-apt-repository -y universe \
     && apt-get update && apt-get install -y --no-install-recommends \
@@ -82,95 +52,48 @@ RUN apt-get update && apt-get install -y --no-install-recommends software-proper
         openbox \
     && rm -rf /var/lib/apt/lists/*
 
-# === Node.js 24 설치 ===
+# === Google Chrome (nlm login 브라우저 인증 전용) ===
+# Ubuntu 22.04에서 chromium-browser는 snap으로 전환되어 Docker에서 동작 불가.
+# Google Chrome .deb 직접 설치로 우회.
+# Source: https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+RUN wget -q -O /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
+    && apt-get install -y /tmp/chrome.deb \
+    && rm /tmp/chrome.deb \
+    && rm -rf /var/lib/apt/lists/*
+
+# === Node.js 24 (JS 기반 MCP 서버 확장 대비) ===
 # Source: https://github.com/nodesource/distributions
-# OpenClaw은 Node.js 22.16+ 필수, 24 권장
 RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# === node 사용자 생성 ===
-# OpenClaw gateway를 비root로 실행하기 위한 전용 사용자 (uid=1000)
-RUN useradd -m -u 1000 -s /bin/bash node
-
-# === Ollama 설치 ===
-# Source: https://docs.ollama.com/linux
-# tar 방식: install.sh는 systemd 서비스까지 설치하므로 컨테이너에 부적합
-# 파이프 스트림에서 tar의 zst 자동 감지가 불안정하므로 파일로 받은 뒤 명시적 해제
-# 캐시 무효화용 ARG: 버전 업데이트 시 이 레이어부터 재빌드
-ARG OLLAMA_VERSION=latest
-RUN curl -fsSL https://ollama.com/download/ollama-linux-amd64.tar.zst \
-        -o /tmp/ollama.tar.zst \
-    && zstd -d /tmp/ollama.tar.zst --stdout | tar x -C /usr \
-    && rm /tmp/ollama.tar.zst
-
-# === uv 설치 ===
+# === uv (Python 패키지 매니저) ===
 # Source: https://docs.astral.sh/uv/getting-started/installation/
-# pip3로 설치 시 /usr/local/bin/uv, /usr/local/bin/uvx 위치 → node 사용자도 실행 가능
 RUN pip3 install uv \
     && mkdir -p /opt/uv/tools /opt/uv/cache
 
-# === notebooklm-mcp-cli 설치 ===
+# === notebooklm-mcp-cli ===
+# --python 3.12: typing.TypedDict 호환성 이슈로 3.11 사용 불가
 # Source: https://github.com/jacob-bd/notebooklm-mcp-cli
-# UV_TOOL_DIR=/opt/uv/tools 에 격리된 venv로 설치
-# UV_TOOL_BIN_DIR=/usr/local/bin 이므로 entry point가 시스템 PATH에 포함됨
-# a+rX: node 사용자가 uvx notebooklm-mcp-cli 실행 가능하도록 읽기/실행 권한 부여
 RUN uv tool install notebooklm-mcp-cli --python 3.12 \
     && chmod -R a+rX /opt/uv/
 
-# === Playwright Chromium 설치 (nlm-login 스킬 headful 모드용) ===
-# notebooklm-mcp-cli venv의 playwright 바이너리를 find로 동적 탐색
-# (uv 패키지명 정규화가 버전별로 다르므로 경로를 하드코딩하지 않음)
-# --with-deps: Chromium 실행에 필요한 OS 패키지(libX11, libatk 등) 자동 설치
-# Source: https://playwright.dev/python/docs/browsers#install-browsers
-RUN _PW=$(find /opt/uv/tools -name "playwright" -path "*/bin/playwright" 2>/dev/null | head -1) \
-    && if [ -z "$_PW" ]; then \
-           echo "playwright binary not found in uv tools, falling back to pip3 install"; \
-           pip3 install playwright; \
-           _PW=playwright; \
-       fi \
-    && "$_PW" install chromium --with-deps \
-    && chmod -R a+rX /opt/playwright-browsers
+# === supergateway (stdio MCP → SSE/HTTP 변환 프록시) ===
+# notebooklm-mcp-cli는 stdio 전용이므로 supergateway로 SSE 서버로 변환.
+# main 컨테이너의 OpenClaw가 SSE URL로 연결 가능.
+# Source: https://github.com/supermaven-inc/supergateway
+RUN npm install -g supergateway
 
-# === OpenClaw 설치 ===
-# Source: https://docs.openclaw.ai/install/docker
-# root로 시스템 전역 설치 → /usr/local/bin/openclaw (node 사용자도 gosu로 실행 가능)
-RUN npm install -g openclaw@latest
-
-# === shell MCP 서버 설치 ===
-# Source: https://github.com/mako10k/mcp-shell-server
-# node 사용자 권한으로 ollama CLI, reload.sh 등 시스템 명령 실행 가능하게 함
-# 이미지 사전 설치로 npx -y 다운로드 지연 없이 즉시 기동
-RUN npm install -g @mako10k/mcp-shell-server
-
-# === 디렉터리 생성 및 권한 설정 ===
-# /home/node/.openclaw  : OpenClaw 설정·세션·메모리 (Dropbox OpenClaw_Data 마운트 대상)
-# /home/node/.notebooklm: notebooklm-mcp-cli 기본 인증 경로 (fallback)
-# /mnt/notebooklm       : Dropbox OpenClaw_Auth 마운트 대상 (NOTEBOOKLM_HOME 기본값)
-# /workspace            : GitHub repo 클론 대상
-RUN mkdir -p \
-        /home/node/.openclaw/workspace \
-        /home/node/.notebooklm \
-        /mnt/notebooklm \
-        /workspace \
-    && chown -R node:node /home/node
-
-# === 스크립트 및 템플릿 복사 ===
-COPY templates/ /templates/
+# === 스크립트 복사 ===
 COPY entrypoint.sh /entrypoint.sh
-COPY generate-config.sh /usr/local/bin/generate-config.sh
-COPY reload.sh /usr/local/bin/reload.sh
 COPY nlm-reauth-start.sh /usr/local/bin/nlm-reauth-start.sh
 COPY nlm-reauth-finish.sh /usr/local/bin/nlm-reauth-finish.sh
-RUN chmod +x /entrypoint.sh \
-    /usr/local/bin/generate-config.sh \
-    /usr/local/bin/reload.sh \
+RUN chmod +x \
+    /entrypoint.sh \
     /usr/local/bin/nlm-reauth-start.sh \
     /usr/local/bin/nlm-reauth-finish.sh
 
-EXPOSE 18789
 EXPOSE 6080
-
-WORKDIR /workspace
+EXPOSE 3100
 
 ENTRYPOINT ["/entrypoint.sh"]

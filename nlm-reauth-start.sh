@@ -23,7 +23,7 @@ pkill -f "Xvfb :99"             2>/dev/null || true
 pkill -f "x11vnc.*rfbport 5900" 2>/dev/null || true
 pkill -f "websockify.*6080"     2>/dev/null || true
 pkill -f "openbox"              2>/dev/null || true
-pkill -f "/usr/local/bin/nlm"   2>/dev/null || true
+pkill -f "nlm login"            2>/dev/null || true
 rm -f /tmp/nlm-xvfb.pid /tmp/nlm-x11vnc.pid \
        /tmp/nlm-websockify.pid /tmp/nlm-loginproc.pid
 sleep 1

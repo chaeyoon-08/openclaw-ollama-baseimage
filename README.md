@@ -1,236 +1,136 @@
-# openclaw-base
+# openclaw-mcp-hub
 
-gcube GPU 워크로드 전용 OpenClaw + Ollama 컨테이너 이미지.
-환경변수 기반으로 Telegram 봇, 로컬 LLM 추론, OpenClaw gateway가 자동 구성되어 기동된다.
+외부 서비스 인증이 필요한 MCP 서버 전용 컨테이너 이미지.
+OpenClaw main 컨테이너(`openclaw-bot-multi`)와 동일 Pod 내에서 동작하며, `localhost`를 통해 MCP 서버를 제공한다.
 
-이 레포지토리는 브랜치별로 독립된 이미지를 빌드한다.
-
-| 브랜치 | 이미지 | 태그 | 용도 |
-|---|---|---|---|
-| `main` | `ghcr.io/chaeyoon-08/openclaw-bot` | `:latest`, `:YYYY.MM.DD`, `:sha-<7자>` | 단일 에이전트 — 로컬 LLM + 외부 모델 전환 |
-| `multi-agent` | `ghcr.io/chaeyoon-08/openclaw-bot-multi` | `:latest`, `:sha-<7자>` | 멀티 에이전트 + NotebookLM MCP |
-
----
-
-<!-- OPENCLAW_VERSION_START -->
-## OpenClaw 버전 정보
-
-> 이미지 빌드 시 자동 갱신됩니다.
-
-| 항목 | 내용 |
-|---|---|
-| 설치 버전 | `2026.4.12` |
-| 빌드 날짜 | 2026-04-14 |
-
-버전별 변경사항: https://github.com/openclaw/openclaw/releases
-
-<!-- OPENCLAW_VERSION_END -->
-
----
-
-## 공통 사양
-
-### 베이스 이미지 및 런타임
-
-| 항목 | 값 | 비고 |
+| 브랜치 | 이미지 | 태그 |
 |---|---|---|
-| 베이스 | `nvidia/cuda:12.8.1-runtime-ubuntu22.04` | |
-| CUDA | 12.8.1 | Pascal(sm_60) ~ Blackwell(sm_120) 지원. 13.x부터 Pascal 제거 |
-| 최소 호스트 드라이버 | `>= 570.124.06` | |
-| OS | Ubuntu 22.04 LTS | 지원 만료: 2027년 |
-| Node.js | 24 (nodesource) | OpenClaw 요구사항: 22.16+ |
-| OpenClaw | `npm install -g openclaw@latest` | 빌드 시점 최신 버전 고정 |
-| Ollama | 공식 tar.zst 최신 바이너리 | 빌드 시점 최신 버전 고정 |
-| 노출 포트 | `18789` | OpenClaw gateway + Control UI |
+| `mcp-hub` | `ghcr.io/chaeyoon-08/openclaw-mcp-hub` | `:latest`, `:sha-<7자>` |
 
-### 공통 파일 구조
+---
+
+## 역할
+
+```
+gcube 워크로드 (동일 Pod)
+├── openclaw-bot-multi   OpenClaw + Ollama (main)
+│     MCP 연결 → localhost:3100/sse
+│
+└── openclaw-mcp-hub     이 이미지
+      ├── notebooklm MCP (SSE, port 3100)
+      └── noVNC (port 6080, 재인증 시 기동)
+```
+
+main 컨테이너에서 MCP 서버를 직접 실행하지 않고 이 컨테이너에 위임함으로써:
+- 인증 파일(쿠키 등) 격리
+- MCP 서버 추가/교체 시 main 이미지 재빌드 불필요
+
+---
+
+## 포트
+
+| 포트 | 용도 |
+|---|---|
+| `3100` | notebooklm MCP SSE 엔드포인트 (`/sse`, `/message`) |
+| `6080` | noVNC 웹 인터페이스 (nlm 재인증 시만 기동) |
+
+---
+
+## 환경변수
+
+| 변수 | 필수 | 기본값 | 설명 |
+|---|---|---|---|
+| `NOTEBOOKLM_MCP_CLI_PATH` | 권장 | `/mnt/notebooklm/OpenClaw_Auth` | nlm 인증 파일 디렉터리 (gcube 볼륨 마운트 경로) |
+| `NLM_MCP_PORT` | 선택 | `3100` | notebooklm MCP SSE 포트 |
+
+---
+
+## main 컨테이너 연결 설정
+
+`openclaw-bot-multi`의 `generate-config.sh`에서 notebooklm MCP를 아래 방식으로 연결:
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "notebooklm": {
+        "url": "http://localhost:3100/sse"
+      }
+    }
+  }
+}
+```
+
+---
+
+## NotebookLM 재인증 (nlm-login)
+
+인증 쿠키가 만료됐을 때 컨테이너 내에서 직접 재인증하는 절차.
+
+### 사전 준비
+
+로컬 PC 터미널에서 SSH 터널 연결 (포트 6080 포워딩):
+
+```bash
+ssh -p <SSH접속포트> -L 6080:localhost:6080 <사용자아이디>@entry.gcube.ai
+```
+
+gcube 포털 → 워크로드 → SSH 접속 정보에서 포트/아이디/비밀번호 확인.
+
+### 재인증 절차
+
+**1. noVNC + nlm login 기동** (컨테이너 터미널에서):
+
+```bash
+bash /usr/local/bin/nlm-reauth-start.sh
+```
+
+**2. 로컬 브라우저에서 접속**:
+
+```
+http://localhost:6080/vnc.html
+```
+
+**3. Google 계정으로 로그인**
+
+**4. 완료 후 정리**:
+
+```bash
+bash /usr/local/bin/nlm-reauth-finish.sh
+```
+
+---
+
+## 파일 구조
 
 ```
 ├── Dockerfile              이미지 빌드 정의
-├── entrypoint.sh           컨테이너 시작 진입점
-├── generate-config.sh      환경변수 → openclaw.json 변환
-├── reload.sh               실행 중 설정 갱신 + gateway 재시작
+├── entrypoint.sh           NLM 심링크 + supergateway SSE 서버 기동
+├── nlm-reauth-start.sh     noVNC + nlm login 기동 (재인증 시)
+├── nlm-reauth-finish.sh    인증 파일 저장 + noVNC 정리
 └── .github/
-    ├── workflows/
-    │   └── docker-publish.yml  브랜치 push 시 ghcr.io 자동 빌드/push
-    └── scripts/
-        └── update_readme.py    빌드 시 README OpenClaw 버전 자동 갱신
-```
-
-### 파일 간 상호작용
-
-```
-컨테이너 기동 시:
-  entrypoint.sh
-    ├── (필요 시) ollama serve 백그라운드 실행 후 API 헬스체크 대기
-    ├── 환경변수 → /home/node/.openclaw/.env 덤프
-    ├── generate-config.sh 호출 → /home/node/.openclaw/openclaw.json 생성
-    └── openclaw gateway 실행 (비정상 종료 시 자동 재시작)
-
-설정 변경 시:
-  reload.sh
-    ├── /home/node/.openclaw/.env 수동 수정 후 호출
-    ├── generate-config.sh 재호출 → openclaw.json 갱신
-    └── openclaw gateway 프로세스 재시작
-```
-
-### CI/CD
-
-`docker-publish.yml`은 브랜치 push 시 자동으로:
-1. README의 OpenClaw 버전 정보를 `npm view openclaw version`으로 갱신하여 커밋 (`[skip ci]`)
-2. 브랜치별 이미지 이름과 태그를 결정하여 ghcr.io에 push
-
----
-
-## 로컬 개발
-
-```bash
-# 이미지 빌드
-docker build -t openclaw-bot-multi:local .
-
-# 실행 (최소 필수 변수)
-docker run --rm \
-  -e TELEGRAM_BOT_TOKEN=<token> \
-  -e TELEGRAM_ALLOWED_USER_IDS=<id> \
-  -e ORCHESTRATOR_MODEL=ollama/qwen3:14b \
-  -p 18789:18789 \
-  openclaw-bot-multi:local
-
-# docker-compose로 실행 (.env 파일 사용)
-docker compose up --build
-
-# 셸 스크립트 문법 검증
-bash -n entrypoint.sh && bash -n generate-config.sh && bash -n reload.sh
+    └── workflows/
+        └── docker-publish.yml  mcp-hub push 시 ghcr.io 자동 빌드/push
 ```
 
 ---
 
-## 버전 관리 및 업데이트
+## 빌드 및 기술 스택
 
-OpenClaw와 Ollama는 `@latest` / 최신 바이너리를 사용하므로 이미지를 재빌드하면 자동으로 최신 버전이 반영된다. 단, 이 두 컴포넌트가 업데이트될 때는 아래 항목들과의 호환성을 함께 검토해야 한다.
-
-### OpenClaw 업데이트 시 점검 항목
-
-- **Node.js**: OpenClaw가 요구하는 최소 버전이 올라갈 수 있다. 현재 요구사항은 22.16+이며 24를 사용 중. Dockerfile의 `setup_24.x` 버전 변경이 필요할 수 있다.
-- **openclaw.json 스키마**: config 키 구조가 변경될 수 있다. `generate-config.sh`에서 생성하는 JSON 키(`gateway`, `agents`, `mcp.servers` 등)가 유효한지 확인 필요. 과거에도 `mcpServers` → `mcp.servers` 같은 변경이 있었다.
-- **CLI 명령어**: `entrypoint.sh`와 `reload.sh`에서 사용하는 `openclaw gateway` 명령어 인터페이스가 바뀔 수 있다.
-
-### Ollama 업데이트 시 점검 항목
-
-- **Pull API 응답 형식**: `entrypoint.sh`는 `/api/pull` REST API의 스트리밍 JSON을 파싱하여 진행률을 출력한다. 응답 필드명이 변경되면 로그 출력이 깨질 수 있다.
-- **CUDA 요구사항**: Ollama가 지원하는 최소 CUDA/드라이버 버전이 올라갈 수 있다. 베이스 이미지의 CUDA 버전과 호환성 확인 필요.
-
-### CUDA 업데이트 시 점검 항목
-
-- **GPU 지원 범위**: CUDA 13.x부터 Pascal(sm_60/61), Volta(sm_70) GPU가 제거된다. 사용 노드의 GPU 세대 확인 후 업그레이드 여부 결정.
-- **호스트 드라이버**: CUDA 버전마다 요구하는 최소 호스트 드라이버 버전이 다르다. gcube 노드의 드라이버가 요구사항을 충족하는지 확인 필요.
-
----
-
-## openclaw-bot (main 브랜치)
-
-단일 에이전트 최소 구성. 추가 설치 없이 Telegram 봇으로 바로 사용 가능.
-
-### 파일 구조
-
-```
-├── entrypoint.sh     환경변수 검증 → Ollama 시작 → 모델 pull → config 생성 → gateway 기동
-├── generate-config.sh  OLLAMA_MODEL + Telegram 설정 → openclaw.json (단일 에이전트 구조)
-└── reload.sh
-```
-
-### generate-config.sh가 생성하는 openclaw.json
-
-- `gateway`: 로컬 모드, 포트 18789, 토큰 인증. `OPENCLAW_GATEWAY_TOKEN` 고정 시 재시작 후에도 동일 토큰 유지; 미설정 시 `/dev/urandom`으로 자동 생성
-- `models.providers.ollama`: `http://localhost:11434` 고정. 외부 provider API key(`ANTHROPIC_API_KEY` 등)가 존재하면 해당 provider가 `models.providers`에 자동 추가됨
-- `tools.web.search`: DuckDuckGo 기반 웹 검색 기본 활성화 (API 키 불필요)
-- `agents.defaults.model.primary`: `OLLAMA_MODEL` 값
-- `channels.telegram`: `dmPolicy: allowlist`, `allowFrom`에 `TELEGRAM_ALLOWED_USER_IDS`를 배열로 변환하여 주입
-
-### 런타임 구조
-
-```
-컨테이너 (root 실행)
-├── ollama serve (127.0.0.1:11434)
-└── openclaw gateway (0.0.0.0:18789)
-      ↕ Telegram long-polling
-```
-
----
-
-## openclaw-bot-multi (multi-agent 브랜치)
-
-멀티 에이전트 오케스트레이션 + NotebookLM MCP 구성.
-요금 폭탄 방어 로직과 비root 실행 보안 구조가 추가됨.
-
-### 추가 설치 패키지
-
-| 패키지 | 설치 방식 | 역할 |
-|---|---|---|
-| `gosu` | apt | entrypoint(root)에서 gateway를 node 사용자로 전환 실행 |
-| `uv` | pip3 | Python 패키지 및 tool 관리자 |
-| `notebooklm-mcp-cli` | `uv tool install` (`/opt/uv/tools`) | NotebookLM MCP 서버 |
-
-### 파일 구조
-
-```
-├── entrypoint.sh     환경변수 검증 + 요금 방어 → Ollama 조건부 시작 → config 생성
-│                     → node 사용자 권한 설정 → workspace 템플릿 초기화 → gateway 기동
-├── generate-config.sh  ORCHESTRATOR/WORKER 모델 + MCP + subagents 구조 → openclaw.json
-├── reload.sh
-└── templates/          컨테이너 최초 실행 시 workspace에 복사되는 에이전트 초기 파일
-    ├── AGENTS.md       오케스트레이션 운영 지침 (cron tier:local 라우팅 등)
-    ├── SOUL.md         에이전트 페르소나 정의
-    ├── TOOLS.md        사용 가능한 도구 목록
-    └── MEMORY.md       세션 간 기억 저장소 (sentinel 역할 — 존재 시 템플릿 재복사 방지)
-```
-
-### generate-config.sh가 생성하는 openclaw.json
-
-- `gateway`: main과 동일. `controlUi.dangerouslyDisableDeviceAuth: true` 추가 (gcube 환경 Control UI 접근용)
-- `models.providers.ollama`: main과 동일. `MODEL_API_KEY=provider/key` 형식으로 여러 provider 동시 등록 가능
-- `tools.web.search`: main과 동일
-- `agents.defaults.model.primary`: `ORCHESTRATOR_MODEL` 값
-- `agents.defaults.subagents`: `model`은 `WORKER_MODEL`, `maxSpawnDepth: 1`, `maxConcurrent: 4` — 메인 에이전트가 `sessions_spawn`으로 생성하는 서브 에이전트의 모델과 한도
-- `agents.defaults.heartbeat`: Ollama 사용 시 `every: 30m`; 유료 provider 사용 시 `every: 0m`으로 강제 비활성화 (요금 방어)
-- `channels.telegram`: main과 동일
-- `mcp.servers.notebooklm`: `notebooklm-mcp` 바이너리 직접 호출, `NOTEBOOKLM_MCP_CLI_PATH` 환경변수로 인증 파일 경로 주입
-- `mcp.servers.filesystem`: `npx @modelcontextprotocol/server-filesystem`으로 `/workspace` 파일 접근 제공
-
-### 요금 방어 로직
-
-`ORCHESTRATOR_MODEL`이 유료 provider(`anthropic/`, `openai/` 등)인 경우:
-- `WORKER_MODEL`이 `ollama/<model>:<tag>` 형식이 아니면 **컨테이너 기동 중단**
-- heartbeat **강제 비활성화** (`every: "0m"`) — openclaw#56788, #58137 이슈 대응
-
-### 런타임 구조
-
-```
-컨테이너 (entrypoint: root → gateway: node 사용자)
-├── ollama serve (127.0.0.1:11434)   ← ollama/ 모델 사용 시에만 기동
-├── openclaw gateway (0.0.0.0:18789)
-│     ├── Main Agent (ORCHESTRATOR_MODEL)
-│     │     └── sessions_spawn → Worker Agent (WORKER_MODEL, maxDepth=1)
-│     └── Telegram long-polling
-└── MCP 서버 (gateway 자식 프로세스)
-      ├── notebooklm-mcp (NOTEBOOKLM_MCP_CLI_PATH 인증 파일 참조)
-      └── @modelcontextprotocol/server-filesystem (/workspace)
-```
-
-### notebooklm-mcp-cli 변동성 주의
-
-`notebooklm-mcp-cli`는 Google의 공식 API가 아닌 **비공식 내부 API**를 사용하는 커뮤니티 구현체다. 이로 인해 다음과 같은 불안정 요소가 항상 존재한다.
-
-- Google이 내부 API 구조를 변경하면 **예고 없이 동작이 중단**될 수 있다
-- 과거에도 인증 파일 구조(`storage_state.json` → `profiles/default/`)와 환경변수명(`NOTEBOOKLM_HOME` → `NOTEBOOKLM_MCP_CLI_PATH`)이 이미 한 차례 변경된 바 있다
-- 버전 업데이트 전 [GitHub 이슈](https://github.com/jacob-bd/notebooklm-mcp-cli/issues)에서 인증 구조 변경 여부를 반드시 확인할 것
-- 동작 중단 시 `web_search` 도구(DuckDuckGo)로 대체 가능
+| 항목 | 값 |
+|---|---|
+| 베이스 이미지 | `ubuntu:22.04` |
+| Python 패키지 관리 | `uv` |
+| notebooklm-mcp-cli | `uv tool install --python 3.12` |
+| stdio → SSE 변환 | `supergateway` (npm) |
+| 브라우저 (인증용) | Google Chrome (`.deb` 직접 설치) |
+| VNC 스택 | Xvfb + openbox + x11vnc + noVNC |
+| Node.js | 24 (JS 기반 MCP 서버 확장 대비) |
 
 ---
 
 ## 참고 링크
 
-- [OpenClaw 공식 문서](https://docs.openclaw.ai/)
-- [OpenClaw config 레퍼런스](https://docs.openclaw.ai/gateway/configuration-reference)
-- [Ollama 모델 라이브러리](https://ollama.com/library)
 - [notebooklm-mcp-cli GitHub](https://github.com/jacob-bd/notebooklm-mcp-cli)
+- [supergateway GitHub](https://github.com/supercorp-ai/supergateway)
+- [OpenClaw MCP 설정 레퍼런스](https://docs.openclaw.ai/cli/mcp)
