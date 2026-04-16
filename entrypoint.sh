@@ -38,8 +38,8 @@ fi
 
 # ── Provider 감지 ──────────────────────────────────────────────────────────
 ORCH_PROVIDER=$(echo "$ORCHESTRATOR_MODEL" | cut -d'/' -f1)
-# WORKER_MODEL: 쉼표로 여러 모델 지정 가능. 첫 번째 모델로 provider 판단
-WORK_MODEL_PRIMARY=$(echo "${WORKER_MODEL:-$ORCHESTRATOR_MODEL}" | cut -d',' -f1 | tr -d ' ')
+# WORKER_MODEL: 공백으로 여러 모델 지정 가능. 첫 번째 모델로 provider 판단
+WORK_MODEL_PRIMARY=$(echo "${WORKER_MODEL:-$ORCHESTRATOR_MODEL}" | awk '{print $1}')
 WORK_PROVIDER=$(echo "$WORK_MODEL_PRIMARY" | cut -d'/' -f1)
 
 log_ok "Required variables present"
@@ -50,9 +50,8 @@ log_ok "  TELEGRAM_ALLOWED_USER_IDS = ${TELEGRAM_ALLOWED_USER_IDS}"
 # ── 요금 폭탄 방어: 유료 Orchestrator + 비-Ollama Worker 조합 차단 ──────────
 # 모든 worker 모델이 ollama여야 함
 if [ "$ORCH_PROVIDER" != "ollama" ]; then
-    IFS=',' read -ra _WM_LIST <<< "${WORKER_MODEL:-$ORCHESTRATOR_MODEL}"
+    read -ra _WM_LIST <<< "${WORKER_MODEL:-$ORCHESTRATOR_MODEL}"
     for _wm in "${_WM_LIST[@]}"; do
-        _wm=$(echo "$_wm" | tr -d ' ')
         _wp=$(echo "$_wm" | cut -d'/' -f1)
         if [ "$_wp" != "ollama" ]; then
             log_stop "WORKER_MODEL contains non-Ollama model '${_wm}'.
@@ -61,7 +60,7 @@ if [ "$ORCH_PROVIDER" != "ollama" ]; then
         fi
     done
     # 유료 provider API 키 등록 여부 확인
-    echo "$MODEL_API_KEY" | tr ',' '\n' | grep -q "^${ORCH_PROVIDER}/" \
+    echo "$MODEL_API_KEY" | tr -s ' \t' '\n' | grep -v '^$' | grep -q "^${ORCH_PROVIDER}/" \
         || log_stop "ORCHESTRATOR_MODEL uses provider '${ORCH_PROVIDER}' but no matching MODEL_API_KEY entry found.
           Add MODEL_API_KEY=${ORCH_PROVIDER}/<your-api-key>"
 fi
@@ -69,9 +68,9 @@ fi
 # Ollama 필요 여부 판단 (ORCHESTRATOR 또는 WORKER 중 하나라도 ollama이면 시작)
 NEEDS_OLLAMA=false
 [ "$ORCH_PROVIDER" = "ollama" ] && NEEDS_OLLAMA=true
-IFS=',' read -ra _WM_CHECK <<< "${WORKER_MODEL:-$ORCHESTRATOR_MODEL}"
+read -ra _WM_CHECK <<< "${WORKER_MODEL:-$ORCHESTRATOR_MODEL}"
 for _wm in "${_WM_CHECK[@]}"; do
-    [ "$(echo "$_wm" | tr -d ' ' | cut -d'/' -f1)" = "ollama" ] && NEEDS_OLLAMA=true
+    [ "$(echo "$_wm" | cut -d'/' -f1)" = "ollama" ] && NEEDS_OLLAMA=true
 done
 
 # ── 2. GitHub 설정 (선택) ────────────────────────────────────────────────────
@@ -180,9 +179,8 @@ if [ "$NEEDS_OLLAMA" = "true" ]; then
     # Worker 모델 pull — 동기: 모든 모델 준비 완료 후 openclaw.json 등록 및 gateway 시작
     # 주의: /root/.ollama 는 컨테이너 재시작 시 초기화됨 (비영속 경로).
     #       재시작마다 재다운로드를 막으려면 gcube 볼륨으로 /root/.ollama 를 마운트하라.
-    IFS=',' read -ra _WM_PULL <<< "${WORKER_MODEL:-}"
+    read -ra _WM_PULL <<< "${WORKER_MODEL:-}"
     for _wm in "${_WM_PULL[@]}"; do
-        _wm=$(echo "$_wm" | tr -d ' ')
         _wp=$(echo "$_wm" | cut -d'/' -f1)
         _wmn=$(echo "$_wm" | cut -d'/' -f2-)
         if [ "$_wp" = "ollama" ] && [ "$_wm" != "$ORCHESTRATOR_MODEL" ]; then
@@ -266,7 +264,7 @@ ORCHESTRATOR_MODEL="${ORCHESTRATOR_MODEL}"
 # ORCHESTRATOR가 유료 모델이면 반드시 ollama/<model>:<tag> 형식으로 지정
 WORKER_MODEL="${WORKER_MODEL:-}"
 
-# 선택: 외부 provider API 키 (provider/key 형식, 쉼표로 여러 개)
+# 선택: 외부 provider API 키 (provider/key 형식, 공백으로 여러 개)
 MODEL_API_KEY="${MODEL_API_KEY:-}"
 
 # 선택: Gateway 토큰 (미설정 시 자동 생성, 설정 시 재시작 후에도 유지)

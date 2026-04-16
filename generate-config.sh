@@ -40,8 +40,8 @@ fi
 
 # ── Provider 및 모델 설정 ────────────────────────────────────────────────────
 ORCH_PROVIDER=$(echo "$ORCHESTRATOR_MODEL" | cut -d'/' -f1)
-# WORKER_MODEL: 쉼표로 여러 개 지정 가능. subagents 기본값은 첫 번째 모델 사용
-WORK_MODEL=$(echo "${WORKER_MODEL:-$ORCHESTRATOR_MODEL}" | cut -d',' -f1 | tr -d ' ')
+# WORKER_MODEL: 공백으로 여러 개 지정 가능. subagents 기본값은 첫 번째 모델 사용
+WORK_MODEL=$(echo "${WORKER_MODEL:-$ORCHESTRATOR_MODEL}" | awk '{print $1}')
 NLM_HOME="${NOTEBOOKLM_MCP_CLI_PATH:-/mnt/notebooklm/OpenClaw_Auth}"
 
 # ── Gateway 토큰 ─────────────────────────────────────────────────────────────
@@ -60,8 +60,8 @@ fi
 # Source: https://docs.openclaw.ai/channels/telegram
 ALLOW_FROM_JSON=$(
     echo "$TELEGRAM_ALLOWED_USER_IDS" \
-    | tr ',' '\n' \
-    | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
+    | tr -s ' \t' '\n' \
+    | grep -v '^$' \
     | jq -R . \
     | jq -s .
 )
@@ -83,7 +83,7 @@ _try_register_provider() {
 }
 
 if [ -n "$MODEL_API_KEY" ]; then
-    IFS=',' read -ra _KEY_ENTRIES <<< "$MODEL_API_KEY"
+    read -ra _KEY_ENTRIES <<< "$MODEL_API_KEY"
     for _entry in "${_KEY_ENTRIES[@]}"; do
         _provider=$(echo "$_entry" | cut -d'/' -f1)
         _key=$(echo "$_entry" | cut -d'/' -f2-)
@@ -113,9 +113,8 @@ if [ "$ORCH_PROVIDER" = "ollama" ]; then
 fi
 
 if [ -n "$WORKER_MODEL" ]; then
-    IFS=',' read -ra _WML <<< "$WORKER_MODEL"
+    read -ra _WML <<< "$WORKER_MODEL"
     for _wm in "${_WML[@]}"; do
-        _wm=$(echo "$_wm" | tr -d ' ')
         _wp=$(echo "$_wm" | cut -d'/' -f1)
         _wmid=$(echo "$_wm" | cut -d'/' -f2-)
         if [ "$_wp" = "ollama" ]; then
@@ -148,6 +147,57 @@ else
     log_warn "  (heartbeat.model override is unreliable: openclaw#56788, #58137)"
 fi
 
+# ── agents.defaults.models allowlist 생성 ────────────────────────────────────
+# v2026.4.11 Issue #65500: agents.defaults.models 미설정 시 /models에 primary만 표시
+# 모든 사용 가능 모델을 명시적으로 등록하여 /models에 전체 목록 반영
+_AGENTS_MODELS_JSON="[]"
+
+_add_agent_model() {
+    local _m="$1"
+    local _dup
+    _dup=$(echo "$_AGENTS_MODELS_JSON" | jq --arg m "$_m" '[.[] | select(.model == $m)] | length')
+    [ "$_dup" = "0" ] && \
+        _AGENTS_MODELS_JSON=$(echo "$_AGENTS_MODELS_JSON" | jq --arg m "$_m" '. + [{"model": $m}]')
+}
+
+_add_agent_model "$ORCHESTRATOR_MODEL"
+
+if [ -n "$WORKER_MODEL" ]; then
+    read -ra _AML <<< "$WORKER_MODEL"
+    for _am in "${_AML[@]}"; do
+        _add_agent_model "$_am"
+    done
+fi
+
+log_info "Agent model allowlist: $(echo "$_AGENTS_MODELS_JSON" | jq -r '[.[].model] | join(", ")')"
+
+# ── agents.defaults.model.fallbacks 생성 (Issue #65500 워크어라운드) ────────
+# v2026.4.11 Issue #65500: agents.defaults.models만으로는 /models에 워커 모델 미표시
+# 워크어라운드: WORKER_MODEL을 fallbacks에도 등록 → /models에 전체 목록 반영
+# 주의: Issue #47705 — 폴백 실행 시 openclaw.json primary가 폴백 모델로 덮어쓰여질 수 있음
+#       발생 시 reload.sh 재실행으로 복구 가능
+# Source: https://github.com/openclaw/openclaw/issues/65500
+_AGENTS_FALLBACKS_JSON="[]"
+
+_add_fallback_model() {
+    local _m="$1"
+    local _dup
+    _dup=$(echo "$_AGENTS_FALLBACKS_JSON" | jq --arg m "$_m" '[.[] | select(.model == $m)] | length')
+    [ "$_dup" = "0" ] && \
+        _AGENTS_FALLBACKS_JSON=$(echo "$_AGENTS_FALLBACKS_JSON" | jq --arg m "$_m" '. + [{"model": $m}]')
+}
+
+if [ -n "$WORKER_MODEL" ]; then
+    read -ra _AFB <<< "$WORKER_MODEL"
+    for _wm in "${_AFB[@]}"; do
+        _add_fallback_model "$_wm"
+    done
+fi
+
+if [ "$(echo "$_AGENTS_FALLBACKS_JSON" | jq 'length')" -gt 0 ]; then
+    log_info "Fallback models (#65500 workaround): $(echo "$_AGENTS_FALLBACKS_JSON" | jq -r '[.[].model] | join(", ")')"
+fi
+
 # ── openclaw.json 생성 ──────────────────────────────────────────────────────
 log_doing "Generating openclaw.json"
 mkdir -p /home/node/.openclaw
@@ -166,6 +216,8 @@ jq -n \
     --arg     oc_version         "$OPENCLAW_VERSION" \
     --arg     oc_now             "$OPENCLAW_NOW" \
     --argjson allow_from         "$ALLOW_FROM_JSON" \
+    --argjson agents_models      "$_AGENTS_MODELS_JSON" \
+    --argjson agents_fallbacks   "$_AGENTS_FALLBACKS_JSON" \
     '{
         meta: {
             lastTouchedVersion: $oc_version,
@@ -195,7 +247,11 @@ jq -n \
         agents: {
             defaults: {
                 workspace: "/home/node/.openclaw/workspace",
-                model: { primary: $orchestrator_model },
+                models: $agents_models,
+                model: (
+                    { primary: $orchestrator_model } +
+                    if ($agents_fallbacks | length) > 0 then { fallbacks: $agents_fallbacks } else {} end
+                ),
                 subagents: {
                     model: $worker_model,
                     maxSpawnDepth: 1,

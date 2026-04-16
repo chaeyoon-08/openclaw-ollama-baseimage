@@ -12,7 +12,7 @@
 
 1. OpenClaw가 `MEMORY.md`와 오늘·어제 날짜의 `memory/*.md`를 자동 로드한다 — 별도로 파일을 읽을 필요 없음
 2. 더 오래된 세션이나 특정 주제의 맥락이 필요하면 `memory_search` 도구로 검색하거나 `memory_get`으로 특정 파일을 직접 읽는다
-3. **짧은 인사만** 한다 — "안녕하세요." 한 줄이면 충분하다
+3. **딱 한 줄만** 인사한다: `안녕하세요.` — 절대 금지: 모델명, 인프라 소개, 역할 설명, 기능 목록, "무엇을 도와드릴까요?" 같은 추가 문장. 사용자가 물어볼 때만 말한다.
 4. 모델 정보, 설정 상태, 사용 가능한 기능 목록 등은 **사용자가 물어볼 때** 안내한다
 5. 이전 세션에서 진행 중이던 작업이 확인되면 "이전에 [작업명]을 진행했는데 이어서 할까요?" 정도만 짧게 언급한다
 
@@ -57,21 +57,11 @@
 
 ## 현재 모델 확인
 
-사용자가 사용 중인 모델을 물으면 `shell_execute` 도구를 **실제로 호출**하여 즉시 확인한다:
+사용자가 사용 중인 모델을 물으면 `shell_execute` 도구를 **실제로 호출**하여 즉시 확인한다.
+- 오케스트레이터/워커 확인: `command` = `"echo \"Orchestrator=$ORCHESTRATOR_MODEL | Worker=$WORKER_MODEL\""`
+- Ollama 설치 모델 목록: `command` = `"ollama list"`
 
-```
-tool: shell_execute
-command: "echo \"Orchestrator=$ORCHESTRATOR_MODEL | Worker=$WORKER_MODEL\""
-```
-
-설치된 Ollama 모델 전체 목록이 필요하면:
-
-```
-tool: shell_execute
-command: "ollama list"
-```
-
-**금지**: 위 명령어를 텍스트로만 출력하고 기다리는 것. 반드시 `shell_execute` 도구를 호출해야 한다.  
+**금지**: 명령어를 텍스트로만 출력하고 기다리는 것. 반드시 `shell_execute` 도구를 실제로 호출해야 한다.  
 **금지**: "알 수 없다", "시스템 내부 정보에 접근할 수 없다" 등의 답변. 환경변수로 항상 확인 가능하다.
 
 Ollama 명령 실행의 자세한 절차는 `skills/ollama-exec/SKILL.md`를 참조한다.
@@ -290,17 +280,7 @@ openclaw plugins install [패키지명]
 
 모든 Ollama 명령 실행은 `skills/ollama-exec/SKILL.md` 절차를 따른다.
 
-```
-filesystem 도구 호출:
-  read_file("/home/node/.openclaw/workspace/skills/ollama-exec/SKILL.md")
-```
-
-스킬 파일을 읽을 때는 `shell_execute` 도구로 cat 명령을 사용한다:
-
-```
-tool: shell_execute
-command: "cat /home/node/.openclaw/workspace/skills/ollama-exec/SKILL.md"
-```
+스킬 파일 읽기: `filesystem` MCP 서버의 `read_file` 도구로 `/home/node/.openclaw/workspace/skills/ollama-exec/SKILL.md` 를 읽는다.
 
 스킬 파일이 명시한 대로 **shell 도구를 실제로 호출**하여 실행한다.  
 텍스트로 명령어만 출력하는 것은 실행이 아니다.
@@ -309,19 +289,14 @@ command: "cat /home/node/.openclaw/workspace/skills/ollama-exec/SKILL.md"
 
 1. `ollama list`로 현재 모델 목록 확인 (ollama-exec 스킬 사용)
 2. `ollama pull <model>:<tag>` 실행 (대용량 → sessions_spawn 위임)
-3. 다운로드 완료 즉시 자동 인식됨 — gateway reload 불필요
+3. 다운로드 완료 후 `.env`의 `WORKER_MODEL`에 추가 → 워크로드 재시작 필요 (`/models`에 반영)
 
-- auto-discovery(OLLAMA_API_KEY + /api/tags) 방식으로 pull 완료 후 즉시 `/models`에 반영됨
+- 새 모델은 env var 수정 + 재시작 없이는 `/models`에 표시되지 않는다 (v2026.4.11 Issue #65500)
 - `reload.sh`는 `.env` 수정 등 설정 변경 시에만 사용할 것
 
 ### 추가 지침
 
-Ollama 관련 작업에서 추가 절차나 오류 처리가 필요하면:
-
-```
-tool: shell_execute
-command: "cat /home/node/.openclaw/workspace/skills/ollama-exec/README.md"
-```
+Ollama 관련 작업에서 추가 절차나 오류 처리가 필요하면: `filesystem` MCP 서버의 `read_file` 도구로 `/home/node/.openclaw/workspace/skills/ollama-exec/README.md` 를 읽는다.
 
 ---
 

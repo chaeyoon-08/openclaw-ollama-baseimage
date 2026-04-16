@@ -1,14 +1,17 @@
 #!/bin/bash
-# reload.sh -- .env 변경 후 openclaw.json 재생성 + gateway 재시작
+# reload.sh -- .env 변경 후 openclaw.json 재생성 + gateway in-process reload
 #
 # 사용법: bash /usr/local/bin/reload.sh
 #
 # 동작:
 #   1. /home/node/.openclaw/.env 를 읽어서 openclaw.json 재생성
-#   2. openclaw gateway 프로세스 종료 (entrypoint.sh가 자동 재시작)
+#   2. 실행 중인 gateway에 SIGUSR1 전송 → in-process reload
+#      (OPENCLAW_NO_RESPAWN=1 설정으로 새 프로세스 spawn 없이 동일 PID에서 재시작)
+#      pkill 방식은 cold restart → Config overwrite를 유발하므로 사용하지 않음
 #
 # References:
-#   OpenClaw config: https://docs.openclaw.ai/gateway/configuration-reference
+#   OpenClaw config:   https://docs.openclaw.ai/gateway/configuration-reference
+#   OPENCLAW_NO_RESPAWN: https://github.com/openclaw/openclaw/issues/65668
 
 set -e
 
@@ -37,24 +40,26 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# -- gateway 재시작 --
-# entrypoint.sh의 while 루프가 gateway 종료를 감지하고 자동 재시작함
-log_warn "Stopping OpenClaw gateway (auto-restart in ~3s)..."
-pkill -f "openclaw gateway" 2>/dev/null || true
+# -- gateway SIGUSR1 in-process reload --
+# OPENCLAW_NO_RESPAWN=1: SIGUSR1 수신 시 새 프로세스 spawn 없이 동일 PID에서 재시작
+# pkill은 cold restart를 유발하여 Config overwrite가 발생하므로 사용하지 않음
+OPENCLAW_PID=$(pgrep -u node -f "openclaw gateway" 2>/dev/null | head -1 || true)
+
+if [ -z "$OPENCLAW_PID" ]; then
+    log_error "No running gateway found (pgrep -u node -f 'openclaw gateway' returned empty)."
+    log_error "Is entrypoint.sh running? Check: docker logs <container>"
+    exit 1
+fi
+
+log_warn "Sending SIGUSR1 to gateway (PID: ${OPENCLAW_PID}) — in-process reload..."
+kill -USR1 "$OPENCLAW_PID"
 
 sleep 2
 
-# gateway가 다시 올라왔는지 확인
-RETRY=0
-while [ $RETRY -lt 10 ]; do
-    if pgrep -f "openclaw gateway" > /dev/null 2>&1; then
-        log_ok "Gateway restarted successfully"
-        log_done "Reload complete. New configuration is active."
-        exit 0
-    fi
-    sleep 1
-    RETRY=$((RETRY + 1))
-done
-
-log_warn "Gateway may still be restarting. Check with: pgrep -f 'openclaw gateway'"
-log_done "Config updated. Gateway should restart automatically."
+if kill -0 "$OPENCLAW_PID" 2>/dev/null; then
+    log_ok "Gateway reload complete (PID: ${OPENCLAW_PID} still alive)"
+    log_done "Reload complete. New configuration is active."
+else
+    log_warn "Gateway PID ${OPENCLAW_PID} exited after SIGUSR1."
+    log_warn "entrypoint.sh should auto-restart it. Check: pgrep -f 'openclaw gateway'"
+fi

@@ -39,32 +39,17 @@
 
 ## [1단계] shell_execute 도구 호출
 
-shell MCP의 `shell_execute` 도구를 사용한다. 파라미터 이름은 `command`.
+shell MCP 서버의 `shell_execute` 도구를 호출한다. `command` 파라미터에 실행할 명령어 문자열을 전달한다.
 
-**모델 목록 조회 예시:**
+- 모델 목록 조회: `command` = `"ollama list"`
+- 환경변수 확인: `command` = `"echo \"Orchestrator=$ORCHESTRATOR_MODEL | Worker=$WORKER_MODEL\""`
 
-```
-tool: shell_execute
-command: "ollama list"
-```
+**절대 금지 — 다음은 도구 실행이 아니다:**
 
-**환경변수 확인 예시:**
+- `ollama list 를 실행합니다.` 처럼 텍스트만 출력하고 기다리는 것
+- `tool: shell_execute` / `command: "..."` 형태의 텍스트를 채팅창에 출력하는 것
 
-```
-tool: shell_execute
-command: "echo \"Orchestrator=$ORCHESTRATOR_MODEL | Worker=$WORKER_MODEL\""
-```
-
-**절대 금지 — 아래처럼 텍스트만 출력하고 기다리지 말 것:**
-
-```
-ollama list 를 실행합니다.
-```
-```
-tool_code: ollama list
-```
-
-위 형태는 도구 실행이 아니다. 반드시 `shell_execute` 도구를 실제로 호출해야 한다.
+반드시 `shell_execute` 도구를 실제로 호출해야 한다.
 
 ### [1단계] 완료 확인
 
@@ -141,10 +126,7 @@ sessions_spawn(
 
 ### 소형 모델 (직접 실행 가능)
 
-```
-tool: shell_execute
-command: "ollama pull <모델명>"
-```
+`shell_execute` 도구를 호출한다. `command` = `"ollama pull <모델명>"`
 
 ---
 
