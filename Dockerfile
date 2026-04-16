@@ -72,20 +72,28 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # === nlm-login 스킬: 가상 디스플레이 + noVNC 패키지 ===
-# xvfb: 가상 프레임버퍼, x11vnc: VNC 서버, websockify/novnc: 웹 VNC
-# x11vnc, novnc, python3-websockify 는 Ubuntu 22.04 universe 저장소에만 있음
-# software-properties-common 으로 universe 활성화 후 설치
+# xvfb: 가상 프레임버퍼, x11vnc: VNC 서버, openbox: 경량 윈도우 매니저
+# x11vnc 는 Ubuntu 22.04 universe 저장소에만 있음
+# python3-websockify/novnc apt 패키지는 nvidia/cuda base image 환경에서 의존성 충돌 발생
+# → websockify: pip3 설치, noVNC: GitHub 직설치로 대체 (아래 RUN 참조)
 # Source: https://launchpad.net/ubuntu/jammy/+package/x11vnc
-# Source: https://github.com/novnc/noVNC
 RUN apt-get update && apt-get install -y --no-install-recommends software-properties-common \
     && add-apt-repository -y universe \
     && apt-get update && apt-get install -y --no-install-recommends \
         xvfb \
         x11vnc \
-        python3-websockify \
-        novnc \
         openbox \
     && rm -rf /var/lib/apt/lists/*
+
+# === websockify + noVNC 설치 (apt 패키지 의존성 충돌 우회) ===
+# websockify: pip3 설치 (python3-pip는 기본 도구 레이어에서 설치됨)
+# noVNC v1.6.0: GitHub release 직설치 → /usr/share/novnc
+# nlm-reauth-start.sh이 websockify --web /usr/share/novnc 경로를 직접 참조
+# Source: https://github.com/novnc/noVNC/releases/tag/v1.6.0
+RUN pip3 install websockify \
+    && mkdir -p /usr/share/novnc \
+    && curl -fsSL https://github.com/novnc/noVNC/archive/refs/tags/v1.6.0.tar.gz \
+        | tar -xz --strip-components=1 -C /usr/share/novnc
 
 # === Node.js 24 설치 ===
 # Source: https://github.com/nodesource/distributions

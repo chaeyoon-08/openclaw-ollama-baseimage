@@ -9,9 +9,11 @@
 #   OpenClaw cron:         https://docs.openclaw.ai/automation/cron-jobs
 #   OpenClaw subagents:    https://docs.openclaw.ai/tools/subagents
 #
-# 모델 자동 스캔:
-#   models.providers.ollama 블록 미정의 + OLLAMA_API_KEY env var
-#   → OpenClaw이 /api/tags 자동 스캔으로 Ollama 전체 모델 표시 (Issue #65500 우회)
+# Ollama 모델 등록:
+#   generate-config.sh 실행 시점에 Ollama가 이미 기동 중 → /api/tags 쿼리로 모델 목록 확보
+#   models.providers.ollama 블록에 명시 등록 (OLLAMA_API_KEY env var 단독 auto-discovery는
+#   게이트웨이 라우팅 초기화 이후에 config overwrite가 발생하는 타이밍 문제로 신뢰 불가)
+#   Source: https://docs.openclaw.ai/providers/ollama
 #
 # 요금 방어 로직:
 #   ORCHESTRATOR가 유료 provider이면 heartbeat 강제 비활성화 (every: "0m")
@@ -114,6 +116,19 @@ else
     log_warn "  (heartbeat.model override is unreliable: openclaw#56788, #58137)"
 fi
 
+# ── Ollama 모델 목록 조회 ────────────────────────────────────────────────────
+# entrypoint.sh가 Ollama 기동 완료를 보장한 뒤 generate-config.sh를 호출함
+# → curl 실패 시 빈 배열로 fallback (Ollama가 없는 순수 외부 provider 환경 대비)
+_OLLAMA_MODELS_JSON="[]"
+if _TAGS=$(curl -sf http://127.0.0.1:11434/api/tags 2>/dev/null); then
+    _OLLAMA_MODELS_JSON=$(echo "$_TAGS" \
+        | jq '[.models[].name | {id: ., name: .}]' 2>/dev/null || echo "[]")
+    _OLLAMA_MODEL_COUNT=$(echo "$_OLLAMA_MODELS_JSON" | jq 'length')
+    log_ok "Ollama models queried: ${_OLLAMA_MODEL_COUNT} found"
+else
+    log_warn "Ollama API unreachable — model list empty (external providers only)"
+fi
+
 # ── openclaw.json 생성 ──────────────────────────────────────────────────────
 log_doing "Generating openclaw.json"
 mkdir -p /home/node/.openclaw
@@ -131,6 +146,7 @@ jq -n \
     --arg     oc_version         "$OPENCLAW_VERSION" \
     --arg     oc_now             "$OPENCLAW_NOW" \
     --argjson allow_from         "$ALLOW_FROM_JSON" \
+    --argjson ollama_models      "$_OLLAMA_MODELS_JSON" \
     '{
         meta: {
             lastTouchedVersion: $oc_version,
@@ -145,7 +161,14 @@ jq -n \
         },
         models: {
             mode: "merge",
-            providers: {}
+            providers: {
+                ollama: {
+                    api: "ollama",
+                    apiKey: "ollama-local",
+                    baseUrl: "http://127.0.0.1:11434",
+                    models: $ollama_models
+                }
+            }
         },
         tools: {
             web: {
