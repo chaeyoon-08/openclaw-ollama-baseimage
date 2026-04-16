@@ -53,33 +53,34 @@ ENV UV_PYTHON_INSTALL_DIR=/opt/uv/python
 # Source: https://playwright.dev/python/docs/browsers#managing-browser-binaries
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
 
-# === 기본 도구 설치 (gosu 포함) ===
+# === 기본 도구 + VNC 패키지 통합 설치 ===
+# universe 저장소를 sources.list.d에 직접 추가 → apt-get update 1회 호출로 통합
+# software-properties-common + add-apt-repository 제거 → 두 번째 apt-get update 불필요
+# 근거: GitHub Actions 빌드 시 archive.ubuntu.com 일시 단절로 두 번째 apt-get update 실패
+#       (exit code: 100, Connection failed [IP: 185.125.190.82 80])
 # gosu: entrypoint에서 root → node 전환으로 openclaw gateway를 비root 실행
+# x11vnc, openbox: universe 저장소 패키지
 # Source: https://github.com/tianon/gosu
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    wget \
-    git \
-    nano \
-    vim \
-    ca-certificates \
-    build-essential \
-    python3 \
-    python3-pip \
-    jq \
-    zstd \
-    gosu \
-    && rm -rf /var/lib/apt/lists/*
-
-# === nlm-login 스킬: 가상 디스플레이 + noVNC 패키지 ===
-# xvfb: 가상 프레임버퍼, x11vnc: VNC 서버, openbox: 경량 윈도우 매니저
-# x11vnc 는 Ubuntu 22.04 universe 저장소에만 있음
-# python3-websockify/novnc apt 패키지는 nvidia/cuda base image 환경에서 의존성 충돌 발생
-# → websockify: pip3 설치, noVNC: GitHub 직설치로 대체 (아래 RUN 참조)
 # Source: https://launchpad.net/ubuntu/jammy/+package/x11vnc
-RUN apt-get update && apt-get install -y --no-install-recommends software-properties-common \
-    && add-apt-repository -y universe \
+RUN echo "deb http://archive.ubuntu.com/ubuntu jammy universe" \
+        > /etc/apt/sources.list.d/universe.list \
+    && echo "deb http://archive.ubuntu.com/ubuntu jammy-updates universe" \
+        >> /etc/apt/sources.list.d/universe.list \
+    && echo "deb http://security.ubuntu.com/ubuntu jammy-security universe" \
+        >> /etc/apt/sources.list.d/universe.list \
     && apt-get update && apt-get install -y --no-install-recommends \
+        curl \
+        wget \
+        git \
+        nano \
+        vim \
+        ca-certificates \
+        build-essential \
+        python3 \
+        python3-pip \
+        jq \
+        zstd \
+        gosu \
         xvfb \
         x11vnc \
         openbox \
