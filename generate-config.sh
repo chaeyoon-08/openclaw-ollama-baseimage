@@ -9,11 +9,13 @@
 #   OpenClaw cron:         https://docs.openclaw.ai/automation/cron-jobs
 #   OpenClaw subagents:    https://docs.openclaw.ai/tools/subagents
 #
+# 모델 자동 스캔:
+#   models.providers.ollama 블록 미정의 + OLLAMA_API_KEY env var
+#   → OpenClaw이 /api/tags 자동 스캔으로 Ollama 전체 모델 표시 (Issue #65500 우회)
+#
 # 요금 방어 로직:
-#   [1] ORCHESTRATOR가 유료 provider이면 heartbeat 강제 비활성화 (every: "0m")
-#       → heartbeat.model override는 반복 regression bug로 신뢰 불가 (#56788, #58137)
-#   [2] subagents.model = $WORKER_MODEL (Ollama 고정)
-#       → cron 잡 등 격리 세션 작업이 자동으로 로컬 모델 사용
+#   ORCHESTRATOR가 유료 provider이면 heartbeat 강제 비활성화 (every: "0m")
+#   → heartbeat.model override는 반복 regression bug로 신뢰 불가 (#56788, #58137)
 
 set -e
 
@@ -40,8 +42,6 @@ fi
 
 # ── Provider 및 모델 설정 ────────────────────────────────────────────────────
 ORCH_PROVIDER=$(echo "$ORCHESTRATOR_MODEL" | cut -d'/' -f1)
-# WORKER_MODEL: 공백으로 여러 개 지정 가능. subagents 기본값은 첫 번째 모델 사용
-WORK_MODEL=$(echo "${WORKER_MODEL:-$ORCHESTRATOR_MODEL}" | awk '{print $1}')
 NLM_HOME="${NOTEBOOKLM_MCP_CLI_PATH:-/mnt/notebooklm/OpenClaw_Auth}"
 
 # ── Gateway 토큰 ─────────────────────────────────────────────────────────────
@@ -99,39 +99,6 @@ if [ -n "$MODEL_API_KEY" ]; then
     done
 fi
 
-# ── Ollama provider 명시 등록 ────────────────────────────────────────────────
-# providers: {} + OLLAMA_API_KEY → Config overwrite 이후 auth 끊김 (Issue #3740)
-# api: "openai-completions" → tool calling 차단 (Issue #41328)
-# 해결: 모든 모델 다운로드 완료 후 api: "ollama" + 명시적 목록으로 등록
-# 2026.4.11에서 api: "ollama" 정상 동작 (회귀는 2026.4.12에서 발생 — Issue #66202)
-# Source: https://docs.openclaw.ai/providers/ollama
-_OLLAMA_MODEL_IDS="[]"
-
-if [ "$ORCH_PROVIDER" = "ollama" ]; then
-    _m=$(echo "$ORCHESTRATOR_MODEL" | cut -d'/' -f2-)
-    _OLLAMA_MODEL_IDS=$(echo "$_OLLAMA_MODEL_IDS" | jq --arg id "$_m" '. + [{"id": $id, "name": $id}]')
-fi
-
-if [ -n "$WORKER_MODEL" ]; then
-    read -ra _WML <<< "$WORKER_MODEL"
-    for _wm in "${_WML[@]}"; do
-        _wp=$(echo "$_wm" | cut -d'/' -f1)
-        _wmid=$(echo "$_wm" | cut -d'/' -f2-)
-        if [ "$_wp" = "ollama" ]; then
-            _DUP=$(echo "$_OLLAMA_MODEL_IDS" | jq --arg id "$_wmid" '[.[] | select(.id == $id)] | length')
-            [ "$_DUP" = "0" ] && \
-                _OLLAMA_MODEL_IDS=$(echo "$_OLLAMA_MODEL_IDS" | jq --arg id "$_wmid" '. + [{"id": $id, "name": $id}]')
-        fi
-    done
-fi
-
-if [ "$(echo "$_OLLAMA_MODEL_IDS" | jq 'length')" -gt 0 ]; then
-    _PROVIDERS_JSON=$(echo "$_PROVIDERS_JSON" | jq \
-        --argjson models "$_OLLAMA_MODEL_IDS" \
-        '. + {"ollama": {"api": "ollama", "baseUrl": "http://127.0.0.1:11434", "apiKey": "ollama-local", "models": $models}}')
-    log_info "Ollama models registered: $(echo "$_OLLAMA_MODEL_IDS" | jq -r '[.[].name] | join(", ")')"
-fi
-
 # ── Heartbeat 설정 결정 ──────────────────────────────────────────────────────
 # heartbeat.model override는 반복적인 known bug로 신뢰 불가
 # 관련 이슈: openclaw#56788 (v2026.3.28 regression), #58137 (live session switch 간섭)
@@ -147,57 +114,6 @@ else
     log_warn "  (heartbeat.model override is unreliable: openclaw#56788, #58137)"
 fi
 
-# ── agents.defaults.models allowlist 생성 ────────────────────────────────────
-# v2026.4.11 Issue #65500: agents.defaults.models 미설정 시 /models에 primary만 표시
-# 모든 사용 가능 모델을 명시적으로 등록하여 /models에 전체 목록 반영
-_AGENTS_MODELS_JSON="[]"
-
-_add_agent_model() {
-    local _m="$1"
-    local _dup
-    _dup=$(echo "$_AGENTS_MODELS_JSON" | jq --arg m "$_m" '[.[] | select(.model == $m)] | length')
-    [ "$_dup" = "0" ] && \
-        _AGENTS_MODELS_JSON=$(echo "$_AGENTS_MODELS_JSON" | jq --arg m "$_m" '. + [{"model": $m}]')
-}
-
-_add_agent_model "$ORCHESTRATOR_MODEL"
-
-if [ -n "$WORKER_MODEL" ]; then
-    read -ra _AML <<< "$WORKER_MODEL"
-    for _am in "${_AML[@]}"; do
-        _add_agent_model "$_am"
-    done
-fi
-
-log_info "Agent model allowlist: $(echo "$_AGENTS_MODELS_JSON" | jq -r '[.[].model] | join(", ")')"
-
-# ── agents.defaults.model.fallbacks 생성 (Issue #65500 워크어라운드) ────────
-# v2026.4.11 Issue #65500: agents.defaults.models만으로는 /models에 워커 모델 미표시
-# 워크어라운드: WORKER_MODEL을 fallbacks에도 등록 → /models에 전체 목록 반영
-# 주의: Issue #47705 — 폴백 실행 시 openclaw.json primary가 폴백 모델로 덮어쓰여질 수 있음
-#       발생 시 reload.sh 재실행으로 복구 가능
-# Source: https://github.com/openclaw/openclaw/issues/65500
-_AGENTS_FALLBACKS_JSON="[]"
-
-_add_fallback_model() {
-    local _m="$1"
-    local _dup
-    _dup=$(echo "$_AGENTS_FALLBACKS_JSON" | jq --arg m "$_m" '[.[] | select(.model == $m)] | length')
-    [ "$_dup" = "0" ] && \
-        _AGENTS_FALLBACKS_JSON=$(echo "$_AGENTS_FALLBACKS_JSON" | jq --arg m "$_m" '. + [{"model": $m}]')
-}
-
-if [ -n "$WORKER_MODEL" ]; then
-    read -ra _AFB <<< "$WORKER_MODEL"
-    for _wm in "${_AFB[@]}"; do
-        _add_fallback_model "$_wm"
-    done
-fi
-
-if [ "$(echo "$_AGENTS_FALLBACKS_JSON" | jq 'length')" -gt 0 ]; then
-    log_info "Fallback models (#65500 workaround): $(echo "$_AGENTS_FALLBACKS_JSON" | jq -r '[.[].model] | join(", ")')"
-fi
-
 # ── openclaw.json 생성 ──────────────────────────────────────────────────────
 log_doing "Generating openclaw.json"
 mkdir -p /home/node/.openclaw
@@ -209,15 +125,12 @@ jq -n \
     --arg     token              "$OPENCLAW_TOKEN" \
     --arg     bot_token          "$TELEGRAM_BOT_TOKEN" \
     --arg     orchestrator_model "$ORCHESTRATOR_MODEL" \
-    --arg     worker_model       "$WORK_MODEL" \
     --arg     heartbeat_every    "$HEARTBEAT_EVERY" \
     --arg     heartbeat_model    "$HEARTBEAT_MODEL" \
     --arg     nlm_home           "$NLM_HOME" \
     --arg     oc_version         "$OPENCLAW_VERSION" \
     --arg     oc_now             "$OPENCLAW_NOW" \
     --argjson allow_from         "$ALLOW_FROM_JSON" \
-    --argjson agents_models      "$_AGENTS_MODELS_JSON" \
-    --argjson agents_fallbacks   "$_AGENTS_FALLBACKS_JSON" \
     '{
         meta: {
             lastTouchedVersion: $oc_version,
@@ -247,13 +160,8 @@ jq -n \
         agents: {
             defaults: {
                 workspace: "/home/node/.openclaw/workspace",
-                models: $agents_models,
-                model: (
-                    { primary: $orchestrator_model } +
-                    if ($agents_fallbacks | length) > 0 then { fallbacks: $agents_fallbacks } else {} end
-                ),
+                model: { primary: $orchestrator_model },
                 subagents: {
-                    model: $worker_model,
                     maxSpawnDepth: 1,
                     maxConcurrent: 4,
                     runTimeoutSeconds: 300

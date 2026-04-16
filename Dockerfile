@@ -153,14 +153,16 @@ RUN npm install -g openclaw@2026.4.11
 RUN npm install -g @mako10k/mcp-shell-server
 
 # === 디렉터리 생성 및 권한 설정 ===
-# /home/node/.openclaw  : OpenClaw 설정·세션·메모리 (Dropbox OpenClaw_Data 마운트 대상)
+# /home/node/.openclaw  : OpenClaw 설정·세션·메모리 (gcube OpenClaw_Data 마운트 대상)
 # /home/node/.notebooklm: notebooklm-mcp-cli 기본 인증 경로 (fallback)
-# /mnt/notebooklm       : Dropbox OpenClaw_Auth 마운트 대상 (NOTEBOOKLM_HOME 기본값)
+# /mnt/notebooklm       : gcube OpenClaw_Auth 마운트 대상 (NOTEBOOKLM_HOME 기본값)
+# /root/.ollama         : Ollama 모델 저장소 (gcube Ollama_Models/ 마운트 대상)
 # /workspace            : GitHub repo 클론 대상
 RUN mkdir -p \
         /home/node/.openclaw/workspace \
         /home/node/.notebooklm \
         /mnt/notebooklm \
+        /root/.ollama \
         /workspace \
     && chown -R node:node /home/node
 
@@ -169,11 +171,13 @@ COPY templates/ /templates/
 COPY entrypoint.sh /entrypoint.sh
 COPY generate-config.sh /usr/local/bin/generate-config.sh
 COPY reload.sh /usr/local/bin/reload.sh
+COPY restart.sh /usr/local/bin/restart.sh
 COPY nlm-reauth-start.sh /usr/local/bin/nlm-reauth-start.sh
 COPY nlm-reauth-finish.sh /usr/local/bin/nlm-reauth-finish.sh
 RUN chmod +x /entrypoint.sh \
     /usr/local/bin/generate-config.sh \
     /usr/local/bin/reload.sh \
+    /usr/local/bin/restart.sh \
     /usr/local/bin/nlm-reauth-start.sh \
     /usr/local/bin/nlm-reauth-finish.sh
 

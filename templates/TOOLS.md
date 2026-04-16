@@ -102,7 +102,8 @@ bash /usr/local/bin/reload.sh
 
 ## 런타임 Ollama 모델 추가
 
-새 Ollama 모델을 `/models` 목록에 등록하고 싶을 때 사용한다. **워크로드 재실행 없이** 가능하다.
+새 Ollama 모델을 설치하고 `/models` 목록에 반영할 때 사용한다. **워크로드 재실행 없이** 가능하다.
+모델 파일은 gcube 클라우드 저장소(Ollama_Models/ → `/root/.ollama`)에 저장되므로 재배포 후에도 유지된다.
 
 **발동 조건:** 사용자가 새 Ollama 모델 설치 또는 등록 요청 시.
 
@@ -119,39 +120,23 @@ command: "ollama pull <model>:<tag>"
 - [ ] `shell_execute` 실제 호출 여부 (텍스트 출력이 아닌 도구 호출)
 - [ ] 출력에 "success" 또는 progress 로그 포함 여부
 
-### [2단계] .env에 WORKER_MODEL 추가
-
-현재 .env 내용 확인:
-```
-tool: shell_execute
-command: "grep WORKER_MODEL /home/node/.openclaw/.env"
-```
-
-WORKER_MODEL 라인 수정 (공백으로 구분하여 추가):
-```
-tool: shell_execute
-command: "sed -i 's|^WORKER_MODEL=.*|WORKER_MODEL=\"<기존모델들> <새모델>\"|' /home/node/.openclaw/.env"
-```
-
-### [3단계] 설정 재생성 + gateway reload
+### [2단계] gateway restart (모델 목록 재스캔)
 
 ```
 tool: shell_execute
-command: "bash /usr/local/bin/reload.sh"
+command: "bash /usr/local/bin/restart.sh"
 ```
 
 완료 확인:
-- [ ] "Reload complete" 또는 "Gateway reload complete" 로그 포함 여부
+- [ ] "Restart triggered" 로그 포함 여부
 - [ ] 오류 없이 완료 여부
 
-### [4단계] 완료 보고
+### [3단계] 완료 보고
 
 ```
-새 모델 <model>:<tag> 가 등록됐습니다.
-/model ollama/<model>:<tag> 명령으로 사용할 수 있습니다.
+새 모델 <model>:<tag> 가 설치됐습니다.
+/models 명령으로 목록을 확인하거나, /model ollama/<model>:<tag> 로 직접 사용할 수 있습니다.
 ```
-
-**주의:** `/models` 목록에 즉시 표시되지 않을 수 있습니다 (OpenClaw Issue #65500). 모델명을 직접 지정하면 사용 가능합니다.
 
 ---
 
