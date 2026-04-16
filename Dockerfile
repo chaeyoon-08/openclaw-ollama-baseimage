@@ -54,20 +54,22 @@ ENV UV_PYTHON_INSTALL_DIR=/opt/uv/python
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
 
 # === 기본 도구 + VNC 패키지 통합 설치 ===
-# universe 저장소를 sources.list.d에 직접 추가 → apt-get update 1회 호출로 통합
-# software-properties-common + add-apt-repository 제거 → 두 번째 apt-get update 불필요
-# 근거: GitHub Actions 빌드 시 archive.ubuntu.com 일시 단절로 두 번째 apt-get update 실패
-#       (exit code: 100, Connection failed [IP: 185.125.190.82 80])
+# apt 미러: archive.ubuntu.com → mirrors.edge.kernel.org/ubuntu
+#   근거: GitHub Actions Docker 빌드 환경에서 archive.ubuntu.com 반복 연결 실패
+#         (exit code: 100, Connection failed [IP: 185.125.190.82 80])
+#         mirrors.edge.kernel.org는 Linux Foundation 운영, CDN 배포, 전역 안정성 높음
+# universe 저장소: x11vnc, openbox 설치에 필요
+# apt-get update 1회 통합 (software-properties-common + add-apt-repository 불필요)
 # gosu: entrypoint에서 root → node 전환으로 openclaw gateway를 비root 실행
-# x11vnc, openbox: universe 저장소 패키지
 # Source: https://github.com/tianon/gosu
 # Source: https://launchpad.net/ubuntu/jammy/+package/x11vnc
-RUN echo "deb http://archive.ubuntu.com/ubuntu jammy universe" \
+# Source: https://mirrors.edge.kernel.org/ubuntu/
+RUN sed -i \
+        -e 's|http://archive.ubuntu.com/ubuntu|http://mirrors.edge.kernel.org/ubuntu|g' \
+        -e 's|http://security.ubuntu.com/ubuntu|http://mirrors.edge.kernel.org/ubuntu|g' \
+        /etc/apt/sources.list \
+    && printf 'deb http://mirrors.edge.kernel.org/ubuntu jammy universe\ndeb http://mirrors.edge.kernel.org/ubuntu jammy-updates universe\ndeb http://mirrors.edge.kernel.org/ubuntu jammy-security universe\n' \
         > /etc/apt/sources.list.d/universe.list \
-    && echo "deb http://archive.ubuntu.com/ubuntu jammy-updates universe" \
-        >> /etc/apt/sources.list.d/universe.list \
-    && echo "deb http://security.ubuntu.com/ubuntu jammy-security universe" \
-        >> /etc/apt/sources.list.d/universe.list \
     && apt-get update && apt-get install -y --no-install-recommends \
         curl \
         wget \
