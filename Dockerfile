@@ -65,10 +65,10 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
 # Source: https://launchpad.net/ubuntu/jammy/+package/x11vnc
 # Source: https://mirrors.edge.kernel.org/ubuntu/
 RUN sed -i \
-        -e 's|http://archive.ubuntu.com/ubuntu|http://mirrors.edge.kernel.org/ubuntu|g' \
-        -e 's|http://security.ubuntu.com/ubuntu|http://mirrors.edge.kernel.org/ubuntu|g' \
+        -e 's|http://archive.ubuntu.com/ubuntu|https://mirrors.edge.kernel.org/ubuntu|g' \
+        -e 's|http://security.ubuntu.com/ubuntu|https://mirrors.edge.kernel.org/ubuntu|g' \
         /etc/apt/sources.list \
-    && printf 'deb http://mirrors.edge.kernel.org/ubuntu jammy universe\ndeb http://mirrors.edge.kernel.org/ubuntu jammy-updates universe\ndeb http://mirrors.edge.kernel.org/ubuntu jammy-security universe\n' \
+    && printf 'deb https://mirrors.edge.kernel.org/ubuntu jammy universe\ndeb https://mirrors.edge.kernel.org/ubuntu jammy-updates universe\ndeb https://mirrors.edge.kernel.org/ubuntu jammy-security universe\n' \
         > /etc/apt/sources.list.d/universe.list \
     && apt-get update && apt-get install -y --no-install-recommends \
         curl \
