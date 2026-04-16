@@ -9,7 +9,7 @@
 #   gosu (user switch):      https://github.com/tianon/gosu
 #
 # 환경변수 필수: TELEGRAM_BOT_TOKEN, TELEGRAM_ALLOWED_USER_IDS, ORCHESTRATOR_MODEL
-# 환경변수 선택: WORKER_MODEL, MODEL_API_KEY, NOTEBOOKLM_MCP_CLI_PATH, GITHUB_*
+# 환경변수 선택: MODEL_API_KEY, NOTEBOOKLM_MCP_CLI_PATH, OPENCLAW_GATEWAY_TOKEN, GITHUB_*
 
 set -e
 
@@ -234,10 +234,6 @@ TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN}"
 TELEGRAM_ALLOWED_USER_IDS="${TELEGRAM_ALLOWED_USER_IDS}"
 ORCHESTRATOR_MODEL="${ORCHESTRATOR_MODEL}"
 
-# 선택: Worker 모델 (미설정 시 ORCHESTRATOR_MODEL 상속)
-# ORCHESTRATOR가 유료 모델이면 반드시 ollama/<model>:<tag> 형식으로 지정
-WORKER_MODEL="${WORKER_MODEL:-}"
-
 # 선택: 외부 provider API 키 (provider/key 형식, 공백으로 여러 개)
 MODEL_API_KEY="${MODEL_API_KEY:-}"
 
@@ -299,7 +295,6 @@ sleep 3
 log_done "All services started"
 echo ""
 echo "  Orchestrator  : ${ORCHESTRATOR_MODEL}"
-echo "  Worker model  : ${WORKER_MODEL:-$ORCHESTRATOR_MODEL}"
 echo "  Gateway token : ${OPENCLAW_TOKEN}"
 echo ""
 
