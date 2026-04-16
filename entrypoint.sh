@@ -163,6 +163,11 @@ if [ "$NEEDS_OLLAMA" = "true" ]; then
                 esac
             fi
         done
+        # pull 후 실제 설치 여부 재확인
+        # Ollama API는 registry 연결 실패 시에도 200 반환하는 경우 있음 → 오탐 방지
+        if ! _model_exists "$_model"; then
+            log_stop "Model pull failed: '${_model}' not found after pull. Check network connectivity to registry.ollama.ai"
+        fi
         log_ok "Model ready: ${_model}"
     }
 
