@@ -181,7 +181,7 @@ if [ "$NEEDS_OLLAMA" = "true" ]; then
         done
     fi
 
-    # 런타임 모델 추가: ollama pull → restart.sh(gateway full restart)
+    # 런타임 모델 추가: 봇에게 요청 → ollama pull → restart.sh(gateway full restart)
     # restart.sh 실행 시 /api/tags 재스캔 → /models에 자동 반영
     # Source: https://github.com/openclaw/openclaw/issues/49568
 else
