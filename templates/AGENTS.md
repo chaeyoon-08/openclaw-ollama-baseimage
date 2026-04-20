@@ -101,47 +101,6 @@ cat /home/node/.openclaw/workspace/skills/nlm-login/SKILL.md
 
 ---
 
-## 작업 실행 전 모델 선택
-
-**전략 수립, 분석, 사용자와의 대화**는 오케스트레이터 모델(현재 세션)이 직접 처리한다.
-
-**실행 작업**(코드 작성, 파일 수정, 시스템 명령, MCP 호출 등)이 필요한 경우,
-실행 전에 사용자에게 어떤 모델에게 시킬지 물어본다.
-
-### 모델 선택 안내 형식
-
-`shell_execute`로 `echo $WORKER_MODELS`를 실행해서 현재 워커 모델 목록을 확인한 뒤 안내한다.
-
-```
-이 작업을 어떤 모델에게 맡길까요?
-
-1. [ORCHESTRATOR_MODEL 값] — 현재 대화 모델. 복잡한 추론, 전략 수립, 코드 품질이 중요한 작업에 적합.
-2. [WORKER_MODELS 첫 번째 항목] — 서브 에이전트 기본 모델. 반복적이거나 단순 실행 작업에 적합.
-3. [WORKER_MODELS 두 번째 항목 이상, 있는 경우만] — 각 모델의 특성에 따라 선택.
-
-추천: [추천 모델] — [한 문장 이유]
-```
-
-모델 특성 정보는 `workspace/MODEL_GUIDE.md`를 참조한다.
-
-### 추천 기준
-
-| 작업 유형 | 추천 모델 | 이유 |
-|---|---|---|
-| 전략 수립, 복잡한 추론, 설계 판단 | ORCHESTRATOR_MODEL | 추론 품질이 결과에 직접 영향 |
-| 파일 수정, 명령 실행, 반복 작업 | WORKER_MODELS 첫 번째 항목 | API 비용 절감, 속도 충분 |
-| 장기 백그라운드 작업 | WORKER_MODELS 첫 번째 항목 | 실행 중 API 요금 누적 방지 |
-| 특정 전문 작업 (코드 분석, 수학 등) | MODEL_GUIDE.md 기준 최적 모델 | 작업 특성에 맞는 강점 모델 선택 |
-
-### 사용자가 "모델 선택 묻지 마"라고 한 경우
-
-사용자에게 묻지 않고 자율 선택한다. 단, 선택 근거가 있어야 한다.
-
-1. `workspace/MODEL_GUIDE.md`가 없으면: `shell_execute`로 `echo $WORKER_MODELS`를 실행해 워커 모델 목록을 확인하고,
-   각 모델을 웹 검색하여 특성(강점, 약점, 적합 작업)을 정리한 뒤 `MODEL_GUIDE.md`로 저장한다.
-2. `workspace/MODEL_GUIDE.md`가 있으면: 해당 파일을 참조하여 작업 유형에 맞는 모델을 선택한다.
-3. 선택한 이유를 사용자에게 한 줄로 알린다. ("gemma4:31b로 진행합니다 — 코드 실행 작업에 적합")
-
 ---
 
 ## 사용자 메시지 우선 처리 (인터럽트 행동)
@@ -257,11 +216,21 @@ openclaw plugins install [패키지명]
 
 ---
 
-## Ollama 모델 동적 추가
+## 모델 / API 키 추가 및 교체
 
-사용자가 새 모델 추가를 요청하거나, 작업에 더 적합한 모델이 필요하다고 판단되면 **반드시 ollama-exec 스킬을 사용한다**.
+사용자가 Ollama 모델 추가, 외부 API 키 등록, 오케스트레이터 모델 교체를 요청하면 **브리핑 없이 즉시** 아래 절차로 실행한다.
 
-상세 절차: `filesystem` MCP의 `read_file` 도구로 `/home/node/.openclaw/workspace/skills/ollama-exec/SKILL.md` 읽기.
+1. `shell_execute`로 `/home/node/.openclaw/add_model.json` 편집:
+   - 모델 추가: `"ollama_add": ["모델명:태그"]`
+   - API 키: `"api_keys": {"provider": "key"}`
+   - 오케스트레이터 교체: `"orchestrator": "provider/모델명:태그"`
+2. `shell_execute`로 실행:
+   ```bash
+   bash /usr/local/bin/apply-model-config.sh
+   ```
+3. 결과 요약 보고 (pull 진행 상황, 설정 반영 여부)
+
+`apply-model-config.sh`는 완료 후 `add_model.json` 값을 자동 초기화한다.
 
 ---
 
