@@ -90,51 +90,9 @@ Ollama 명령 실행의 자세한 절차는 `skills/ollama-exec/SKILL.md`를 참
 
 ---
 
-## NotebookLM 연결 상태 확인 및 재인증 (nlm-login 스킬)
+## NotebookLM 연결 상태 확인 및 재인증
 
-### 상태 확인 (사용자가 NLM 연동 현황을 물을 때)
-
-shell 도구로 인증 파일 존재 여부를 즉시 확인한다:
-
-```bash
-ls "${NOTEBOOKLM_MCP_CLI_PATH:-/mnt/notebooklm/OpenClaw_Auth}/profiles/default/cookies.json" 2>&1
-```
-
-- **파일 있음**: "NotebookLM 인증 파일이 있습니다. 연동 정상입니다." 보고 후 다음 작업 진행.
-- **파일 없음 또는 오류**: 아래 권장 메시지 전송:
-
-```
-NotebookLM 인증 파일이 없거나 만료됐습니다.
-재인증이 필요합니다. `/nlm-login` 을 입력하시면 재인증 절차를 시작합니다.
-```
-
-### 재인증 실행 (사용자가 `/nlm-login` 입력 또는 NLM 오류 발생 시)
-
-**[1단계]** noVNC + nlm login 프로세스 시작:
-```bash
-bash /usr/local/bin/nlm-reauth-start.sh
-```
-
-**[2단계]** 사용자에게 안내:
-```
-NotebookLM 재인증 준비됐습니다.
-SSH 터널을 열고 브라우저에서 Google 로그인을 진행해 주세요.
-
-1. 로컬 터미널: ssh -L 6080:localhost:6080 <gcube-user>@<gcube-ip>
-2. 브라우저: http://localhost:6080/vnc.html
-3. 화면에서 Google 계정으로 로그인
-4. 로그인 완료 후 이 채팅에 "완료"라고 입력해 주세요.
-```
-
-**[3단계]** 사용자가 "완료"라고 하면:
-```bash
-bash /usr/local/bin/nlm-reauth-finish.sh
-bash /usr/local/bin/reload.sh
-```
-
-**[4단계]** 완료 안내 후 NLM 도구 재시도.
-
-오류 시: `/tmp/nlm-login.log` 내용을 사용자에게 보고하고 재시도 여부 확인.
+상태 확인 및 재인증 절차는 `TOOLS.md`의 **nlm-login 스킬** 참조.
 
 ---
 
@@ -269,6 +227,13 @@ sessions_send(
 
 ---
 
+## 오케스트레이션 이력 확인
+
+사용자가 서브 에이전트 작업 이력, 위임 현황, 오케스트레이션 상태 확인을 요청하면:
+`skills/agent-status/SKILL.md` 를 읽고 절차를 따른다.
+
+---
+
 ## 자율적 스킬 확장
 
 작업 중 필요한 도구나 스킬이 없다면, 사용자에게 묻지 말고 스스로 설치하라.
@@ -285,27 +250,7 @@ openclaw plugins install [패키지명]
 
 사용자가 새 모델 추가를 요청하거나, 작업에 더 적합한 모델이 필요하다고 판단되면 **반드시 ollama-exec 스킬을 사용한다**.
 
-### 기본 실행 스킬
-
-모든 Ollama 명령 실행은 `skills/ollama-exec/SKILL.md` 절차를 따른다.
-
-스킬 파일 읽기: `filesystem` MCP 서버의 `read_file` 도구로 `/home/node/.openclaw/workspace/skills/ollama-exec/SKILL.md` 를 읽는다.
-
-스킬 파일이 명시한 대로 **shell 도구를 실제로 호출**하여 실행한다.  
-텍스트로 명령어만 출력하는 것은 실행이 아니다.
-
-### 새 모델 추가 절차
-
-1. `ollama list`로 현재 모델 목록 확인 (ollama-exec 스킬 사용)
-2. `ollama pull <model>:<tag>` 실행 (대용량 → sessions_spawn으로 백그라운드 위임)
-3. 다운로드 완료 후 `restart.sh` 실행 → generate-config.sh가 `/api/tags` 재스캔 → `/models`에 즉시 반영
-
-- 새 모델을 `subagents.model.primary`(기본 워커 모델)로 쓰려면: `.env`의 `WORKER_MODELS` 첫 번째 항목을 변경 후 `reload.sh` 실행
-- `reload.sh`는 `.env` 수정 등 설정 변경 시에만 사용할 것
-
-### 추가 지침
-
-Ollama 관련 작업에서 추가 절차나 오류 처리가 필요하면: `filesystem` MCP 서버의 `read_file` 도구로 `/home/node/.openclaw/workspace/skills/ollama-exec/README.md` 를 읽는다.
+상세 절차: `filesystem` MCP의 `read_file` 도구로 `/home/node/.openclaw/workspace/skills/ollama-exec/SKILL.md` 읽기.
 
 ---
 

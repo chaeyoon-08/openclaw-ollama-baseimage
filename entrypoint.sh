@@ -216,20 +216,34 @@ log_start "Copying workspace templates"
 WORKSPACE="/home/node/.openclaw/workspace"
 mkdir -p "$WORKSPACE"
 
-# 시스템 지침 파일: 재배포마다 항상 최신 이미지 버전으로 갱신
-# (에이전트 행동 규칙이므로 사용자 데이터가 아님 — 덮어쓰기 안전)
-cp /templates/AGENTS.md      "$WORKSPACE/AGENTS.md"
-cp /templates/CONSTRAINTS.md "$WORKSPACE/CONSTRAINTS.md" 2>/dev/null || true
-cp /templates/TOOLS.md       "$WORKSPACE/TOOLS.md"
+# 시스템 지침 파일: 기본값은 재배포마다 이미지 버전으로 갱신
+# .custom 마커 파일이 있으면 사용자가 직접 편집한 버전을 유지 (덮어쓰기 건너뜀)
+# 마커 파일 생성: touch $WORKSPACE/.custom
+# 마커 파일 삭제 후 재시작: 이미지 기본값으로 복원
+_copy_system_template() {
+    local src="$1" dst="$2"
+    if [ -f "$WORKSPACE/.custom" ]; then
+        log_info "User .custom marker found — preserving: $(basename "$dst")"
+    else
+        cp "$src" "$dst"
+    fi
+}
+_copy_system_template /templates/AGENTS.md      "$WORKSPACE/AGENTS.md"
+_copy_system_template /templates/CONSTRAINTS.md "$WORKSPACE/CONSTRAINTS.md"
+_copy_system_template /templates/TOOLS.md       "$WORKSPACE/TOOLS.md"
 
-# 스킬 디렉토리: 재배포마다 최신 이미지 버전으로 갱신
-# 서브 에이전트 실행 스킬 모음 (skills/ollama/, skills/nlm/ 등)
+# 스킬 디렉토리: 재배포마다 최신 이미지 버전으로 갱신 (.custom 적용 안 함)
 if [ -d "/templates/skills" ]; then
     rm -rf "$WORKSPACE/skills"
     cp -r /templates/skills "$WORKSPACE/skills"
     log_ok "Skills directory updated (skills/)"
 fi
-log_ok "System templates updated (AGENTS.md, CONSTRAINTS.md, TOOLS.md)"
+
+if [ -f "$WORKSPACE/.custom" ]; then
+    log_info "System templates preserved (user .custom active)"
+else
+    log_ok "System templates updated (AGENTS.md, CONSTRAINTS.md, TOOLS.md)"
+fi
 
 # 사용자 데이터 파일: MEMORY.md를 sentinel로 최초 실행 여부 판단
 # MEMORY.md, SOUL.md는 에이전트가 축적한 기억/성격 → 절대 덮어쓰지 않음
