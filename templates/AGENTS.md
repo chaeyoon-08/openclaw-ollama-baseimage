@@ -64,7 +64,6 @@
 **금지**: 명령어를 텍스트로만 출력하고 기다리는 것. 반드시 `shell_execute` 도구를 실제로 호출해야 한다.  
 **금지**: "알 수 없다", "시스템 내부 정보에 접근할 수 없다" 등의 답변. 환경변수로 항상 확인 가능하다.
 
-Ollama 명령 실행의 자세한 절차는 `skills/ollama-exec/SKILL.md`를 참조한다.
 
 ---
 
@@ -92,12 +91,40 @@ Ollama 명령 실행의 자세한 절차는 `skills/ollama-exec/SKILL.md`를 참
 
 ## NotebookLM 연결 상태 확인 및 재인증
 
-인증 오류 발생 또는 사용자가 `/nlm_login` 입력 시 `nlm_login` 스킬을 실행한다.
+인증 오류 발생 또는 사용자가 `/nlm_login` 입력 시 아래 절차를 순서대로 실행한다.
 
-스킬이 자동 주입되지 않는 경우 `shell_execute` 도구로 직접 읽는다:
+**[1] noVNC + 로그인 프로세스 시작** — `shell_execute`로 실행:
 ```bash
-cat /home/node/.openclaw/workspace/skills/nlm-login/SKILL.md
+bash /usr/local/bin/nlm-reauth-start.sh
 ```
+
+**[2] 사용자에게 안내 전송:**
+```
+NotebookLM 재인증 준비됐습니다.
+SSH 터널을 열고 브라우저에서 Google 로그인을 진행해 주세요.
+
+1. [로컬 PC 터미널 새 창] SSH 터널 연결:
+   ssh -p <SSH접속포트> -L 6080:localhost:6080 <사용자아이디>@entry.gcube.ai
+   (gcube 포털 → 워크로드 → SSH 접속 정보에서 포트/아이디/비밀번호 확인)
+
+2. [로컬 브라우저] http://localhost:6080/vnc.html 접속
+
+3. 화면에서 Google 계정으로 로그인
+
+4. 로그인 완료 후 이 채팅에 "완료"라고 입력해 주세요.
+```
+
+**[3] 사용자가 "완료"라고 하면** — `shell_execute`로 실행:
+```bash
+bash /usr/local/bin/nlm-reauth-finish.sh
+```
+
+**[4] gateway reload** — `shell_execute`로 실행:
+```bash
+bash /usr/local/bin/reload.sh
+```
+
+`nlm-reauth-finish.sh` 실행 후 "Auth file not found" 메시지가 나오면 `shell_execute`로 `/tmp/nlm-login.log`를 읽어 사용자에게 보고하고 재시도 여부를 확인한다.
 
 ---
 
@@ -193,14 +220,20 @@ sessions_send(
 
 ## 오케스트레이션 현황 확인
 
-다음 중 하나에 해당하면 `check_agents` 스킬을 실행한다:
-- 사용자가 `/check_agents` 입력
-- "서브 에이전트 이력", "위임 현황", "예약 작업(cron) 목록", "사용 모델 확인" 등 요청
+사용자가 `/check_agents` 입력 또는 "서브 에이전트 이력", "위임 현황", "예약 작업(cron) 목록", "사용 모델 확인" 요청 시 **확인 없이 즉시** 아래 명령을 실행한다.
 
-스킬이 자동 주입되지 않는 경우 `shell_execute` 도구로 직접 읽는다:
+**[1] 모델 및 cron 현황** — `shell_execute`로 실행:
 ```bash
-cat /home/node/.openclaw/workspace/skills/agent-status/SKILL.md
+jq -r '"오케스트레이터: " + .agents.defaults.model.primary + "\n워커: " + (.agents.defaults.subagents.model.primary // "없음") + "\n\n[cron 목록]" + (if (.crons // [] | length) == 0 then "\n  (없음)" else (.crons[] | "\n  - " + .name + " (" + .schedule + ")") end)' /home/node/.openclaw/openclaw.json 2>/dev/null || echo "config 읽기 실패"
 ```
+
+**[2] 오늘 에이전트 활동 로그** — `shell_execute`로 실행:
+```bash
+grep -oE '"agent model:[^"]+"|"spawn[^"]*"|complete[^"]*"' \
+  /tmp/openclaw-1000/openclaw-$(date +%Y-%m-%d).log 2>/dev/null | tail -15 || echo "오늘 활동 없음"
+```
+
+결과를 바탕으로 현재 오케스트레이터/워커 모델, 오늘 위임 작업 요약, cron 목록을 간결하게 보고한다.
 
 ---
 
