@@ -116,6 +116,20 @@ else
     log_warn "  (heartbeat.model override is unreliable: openclaw#56788, #58137)"
 fi
 
+# ── Worker model 설정 (subagents.model.primary) ──────────────────────────────
+# WORKER_MODELS 첫 번째 항목 → agents.defaults.subagents.model.primary
+# 두 번째 이후 항목: providers.ollama.models에 등록되어 /models에는 표시되나
+#   sessions_spawn.model 파라미터로 동적 지정은 현재 OpenClaw 버그로 미동작
+#   Source: https://github.com/openclaw/openclaw/issues/65519
+_WORKER_MODEL_PRIMARY=""
+if [ -n "$WORKER_MODELS" ]; then
+    read -ra _WM_LIST <<< "$WORKER_MODELS"
+    _WORKER_MODEL_PRIMARY="${_WM_LIST[0]}"
+    log_ok "Worker model (subagent default): ${_WORKER_MODEL_PRIMARY}"
+else
+    log_info "WORKER_MODELS not set — subagents will inherit orchestrator model"
+fi
+
 # ── Ollama 모델 목록 조회 ────────────────────────────────────────────────────
 # entrypoint.sh가 Ollama 기동 완료를 보장한 뒤 generate-config.sh를 호출함
 # → curl 실패 시 빈 배열로 fallback (Ollama가 없는 순수 외부 provider 환경 대비)
@@ -140,6 +154,7 @@ jq -n \
     --arg     token              "$OPENCLAW_TOKEN" \
     --arg     bot_token          "$TELEGRAM_BOT_TOKEN" \
     --arg     orchestrator_model "$ORCHESTRATOR_MODEL" \
+    --arg     worker_model       "$_WORKER_MODEL_PRIMARY" \
     --arg     heartbeat_every    "$HEARTBEAT_EVERY" \
     --arg     heartbeat_model    "$HEARTBEAT_MODEL" \
     --arg     nlm_home           "$NLM_HOME" \
@@ -184,11 +199,17 @@ jq -n \
             defaults: {
                 workspace: "/home/node/.openclaw/workspace",
                 model: { primary: $orchestrator_model },
-                subagents: {
-                    maxSpawnDepth: 1,
-                    maxConcurrent: 4,
-                    runTimeoutSeconds: 300
-                },
+                subagents: (
+                    {
+                        maxSpawnDepth: 1,
+                        maxConcurrent: 4,
+                        runTimeoutSeconds: 300
+                    } + (
+                        if $worker_model != "" then
+                            { model: { primary: $worker_model } }
+                        else {} end
+                    )
+                ),
                 heartbeat: (
                     if $heartbeat_every == "0m" then
                         { every: "0m" }

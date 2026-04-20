@@ -58,7 +58,7 @@
 ## 현재 모델 확인
 
 사용자가 사용 중인 모델을 물으면 `shell_execute` 도구를 **실제로 호출**하여 즉시 확인한다.
-- 오케스트레이터/워커 확인: `command` = `"echo \"Orchestrator=$ORCHESTRATOR_MODEL | Worker=$WORKER_MODEL\""`
+- 오케스트레이터/워커 확인: `command` = `"echo \"Orchestrator=$ORCHESTRATOR_MODEL | Workers=$WORKER_MODELS\""`
 - Ollama 설치 모델 목록: `command` = `"ollama list"`
 
 **금지**: 명령어를 텍스트로만 출력하고 기다리는 것. 반드시 `shell_execute` 도구를 실제로 호출해야 한다.  
@@ -147,31 +147,37 @@ bash /usr/local/bin/reload.sh
 
 ### 모델 선택 안내 형식
 
+`shell_execute`로 `echo $WORKER_MODELS`를 실행해서 현재 워커 모델 목록을 확인한 뒤 안내한다.
+
 ```
 이 작업을 어떤 모델에게 맡길까요?
 
-1. [ORCHESTRATOR_MODEL 값] — 현재 대화 모델. 복잡한 추론이나 코드 품질이 중요한 작업에 적합.
-2. [WORKER_MODEL 값] — 로컬 실행 모델. API 비용 없음. 반복적이거나 단순 실행 작업에 적합.
+1. [ORCHESTRATOR_MODEL 값] — 현재 대화 모델. 복잡한 추론, 전략 수립, 코드 품질이 중요한 작업에 적합.
+2. [WORKER_MODELS 첫 번째 항목] — 서브 에이전트 기본 모델. 반복적이거나 단순 실행 작업에 적합.
+3. [WORKER_MODELS 두 번째 항목 이상, 있는 경우만] — 각 모델의 특성에 따라 선택.
 
 추천: [추천 모델] — [한 문장 이유]
 ```
+
+모델 특성 정보는 `workspace/MODEL_GUIDE.md`를 참조한다.
 
 ### 추천 기준
 
 | 작업 유형 | 추천 모델 | 이유 |
 |---|---|---|
-| 복잡한 코드 작성, 설계 판단 | ORCHESTRATOR_MODEL | 추론 품질이 결과에 직접 영향 |
-| 파일 수정, 명령 실행, 반복 작업 | WORKER_MODEL | API 비용 절감, 속도 충분 |
-| 장기 백그라운드 작업 | WORKER_MODEL | 실행 중 API 요금 누적 방지 |
+| 전략 수립, 복잡한 추론, 설계 판단 | ORCHESTRATOR_MODEL | 추론 품질이 결과에 직접 영향 |
+| 파일 수정, 명령 실행, 반복 작업 | WORKER_MODELS 첫 번째 항목 | API 비용 절감, 속도 충분 |
+| 장기 백그라운드 작업 | WORKER_MODELS 첫 번째 항목 | 실행 중 API 요금 누적 방지 |
+| 특정 전문 작업 (코드 분석, 수학 등) | MODEL_GUIDE.md 기준 최적 모델 | 작업 특성에 맞는 강점 모델 선택 |
 
 ### 사용자가 "모델 선택 묻지 마"라고 한 경우
 
 사용자에게 묻지 않고 자율 선택한다. 단, 선택 근거가 있어야 한다.
 
-1. `workspace/MODEL_GUIDE.md`가 없으면: `WORKER_MODEL` 환경변수에서 모델 목록을 읽고,
+1. `workspace/MODEL_GUIDE.md`가 없으면: `shell_execute`로 `echo $WORKER_MODELS`를 실행해 워커 모델 목록을 확인하고,
    각 모델을 웹 검색하여 특성(강점, 약점, 적합 작업)을 정리한 뒤 `MODEL_GUIDE.md`로 저장한다.
 2. `workspace/MODEL_GUIDE.md`가 있으면: 해당 파일을 참조하여 작업 유형에 맞는 모델을 선택한다.
-3. 선택한 이유를 사용자에게 한 줄로 알린다. ("qwen3:32b로 진행합니다 — 분석 작업에 적합")
+3. 선택한 이유를 사용자에게 한 줄로 알린다. ("gemma4:31b로 진행합니다 — 코드 실행 작업에 적합")
 
 ---
 
@@ -220,10 +226,13 @@ LLM turn이 완료된 후 새 메시지를 처리한다. 다음 turn에서:
 ```
 sessions_spawn(
     task="[서브 에이전트에게 위임할 구체적 작업 설명]",
+    model="[사용할 모델 — 예: ollama/gemma4:31b]",
     timeoutSeconds=300
 )
 ```
 
+- `model` 파라미터: 생략 시 `agents.defaults.subagents.model.primary`(WORKER_MODELS 첫 번째 항목)를 사용. 특정 워커 모델을 지정하려면 명시적으로 입력
+- **주의**: sessions_spawn.model 파라미터는 OpenClaw 알려진 버그(Issue #65519)로 현재 무시되고 config 기본값이 사용될 수 있음. 버그 픽스 전까지는 config 기본값 워커 모델로 실행된다고 가정하고 작업을 설계할 것
 - 서브 에이전트는 백그라운드에서 독립적으로 실행된다
 - 작업 완료 후 결과가 자동으로 현재 채널에 반환된다
 - 최대 깊이: depth=1 (서브 에이전트는 추가 서브 에이전트를 생성하지 않는다)
@@ -288,10 +297,10 @@ openclaw plugins install [패키지명]
 ### 새 모델 추가 절차
 
 1. `ollama list`로 현재 모델 목록 확인 (ollama-exec 스킬 사용)
-2. `ollama pull <model>:<tag>` 실행 (대용량 → sessions_spawn 위임)
-3. 다운로드 완료 후 `.env`의 `WORKER_MODEL`에 추가 → 워크로드 재시작 필요 (`/models`에 반영)
+2. `ollama pull <model>:<tag>` 실행 (대용량 → sessions_spawn으로 백그라운드 위임)
+3. 다운로드 완료 후 `restart.sh` 실행 → generate-config.sh가 `/api/tags` 재스캔 → `/models`에 즉시 반영
 
-- 새 모델은 env var 수정 + 재시작 없이는 `/models`에 표시되지 않는다 (v2026.4.11 Issue #65500)
+- 새 모델을 `subagents.model.primary`(기본 워커 모델)로 쓰려면: `.env`의 `WORKER_MODELS` 첫 번째 항목을 변경 후 `reload.sh` 실행
 - `reload.sh`는 `.env` 수정 등 설정 변경 시에만 사용할 것
 
 ### 추가 지침

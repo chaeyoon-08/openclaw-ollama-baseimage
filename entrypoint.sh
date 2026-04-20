@@ -54,6 +54,14 @@ fi
 NEEDS_OLLAMA=false
 [ "$ORCH_PROVIDER" = "ollama" ] && NEEDS_OLLAMA=true
 
+# WORKER_MODELS 중 ollama/ 항목이 있어도 Ollama 필요
+if [ -n "$WORKER_MODELS" ]; then
+    read -ra _WM_NEEDS_CHECK <<< "$WORKER_MODELS"
+    for _wm_c in "${_WM_NEEDS_CHECK[@]}"; do
+        [ "$(echo "$_wm_c" | cut -d'/' -f1)" = "ollama" ] && NEEDS_OLLAMA=true && break
+    done
+fi
+
 # ── 2. GitHub 설정 (선택) ────────────────────────────────────────────────────
 # GITHUB_USERNAME + GITHUB_EMAIL 이 모두 있을 때만 실행
 if [ -n "$GITHUB_USERNAME" ] && [ -n "$GITHUB_EMAIL" ]; then
@@ -157,8 +165,23 @@ if [ "$NEEDS_OLLAMA" = "true" ]; then
         _pull_model "$ORCH_MODEL_NAME"
     fi
 
-    # 추가 모델: gcube 볼륨 Ollama_Models/ → /root/.ollama 마운트로 영속 저장
-    # 봇이 신규 모델을 추가할 때: ollama pull → restart.sh(gateway full restart)
+    # Worker 모델 pull (WORKER_MODELS 환경변수, 공백 구분)
+    # 포맷: "ollama/gemma4:31b ollama/gemma4:e2b"
+    # 이미 볼륨에 있으면 "Model already present (skip)" — 재다운로드 없이 즉시 기동
+    if [ -n "$WORKER_MODELS" ]; then
+        read -ra _WM_ENTRIES <<< "$WORKER_MODELS"
+        for _wm_entry in "${_WM_ENTRIES[@]}"; do
+            _wm_provider=$(echo "$_wm_entry" | cut -d'/' -f1)
+            _wm_name=$(echo "$_wm_entry" | cut -d'/' -f2-)
+            if [ "$_wm_provider" = "ollama" ]; then
+                _pull_model "$_wm_name"
+            else
+                log_info "Worker model '${_wm_entry}' is not an Ollama model — skipping pull"
+            fi
+        done
+    fi
+
+    # 런타임 모델 추가: ollama pull → restart.sh(gateway full restart)
     # restart.sh 실행 시 /api/tags 재스캔 → /models에 자동 반영
     # Source: https://github.com/openclaw/openclaw/issues/49568
 else
@@ -210,12 +233,14 @@ log_ok "System templates updated (AGENTS.md, CONSTRAINTS.md, TOOLS.md)"
 
 # 사용자 데이터 파일: MEMORY.md를 sentinel로 최초 실행 여부 판단
 # MEMORY.md, SOUL.md는 에이전트가 축적한 기억/성격 → 절대 덮어쓰지 않음
+# MODEL_GUIDE.md: 모델 특성 가이드 — 에이전트가 채워넣으므로 최초 1회만 복사
 if [ ! -f "$WORKSPACE/MEMORY.md" ]; then
     log_ok "First run detected — initializing user data from templates"
-    cp /templates/SOUL.md   "$WORKSPACE/SOUL.md"
-    cp /templates/MEMORY.md "$WORKSPACE/MEMORY.md"
+    cp /templates/SOUL.md        "$WORKSPACE/SOUL.md"
+    cp /templates/MEMORY.md      "$WORKSPACE/MEMORY.md"
+    cp /templates/MODEL_GUIDE.md "$WORKSPACE/MODEL_GUIDE.md"
 else
-    log_info "User data preserved (MEMORY.md, SOUL.md)"
+    log_info "User data preserved (MEMORY.md, SOUL.md, MODEL_GUIDE.md)"
 fi
 
 chown -R node:node "$WORKSPACE"
@@ -233,6 +258,11 @@ cat > "$ENV_FILE" << ENVEOF
 TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN}"
 TELEGRAM_ALLOWED_USER_IDS="${TELEGRAM_ALLOWED_USER_IDS}"
 ORCHESTRATOR_MODEL="${ORCHESTRATOR_MODEL}"
+
+# 선택: 워커 모델 목록 (공백 구분, provider/model:tag 포맷)
+# 시작 시 자동 pull, subagents.model.primary로 등록됨 (첫 번째 항목)
+# 예: WORKER_MODELS="ollama/gemma4:31b ollama/gemma4:e2b"
+WORKER_MODELS="${WORKER_MODELS:-}"
 
 # 선택: 외부 provider API 키 (provider/key 형식, 공백으로 여러 개)
 MODEL_API_KEY="${MODEL_API_KEY:-}"
@@ -295,6 +325,7 @@ sleep 3
 log_done "All services started"
 echo ""
 echo "  Orchestrator  : ${ORCHESTRATOR_MODEL}"
+[ -n "$WORKER_MODELS" ] && echo "  Worker Models : ${WORKER_MODELS}"
 echo "  Gateway token : ${OPENCLAW_TOKEN}"
 echo ""
 
