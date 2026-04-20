@@ -43,10 +43,10 @@ fi
 # -- gateway SIGUSR1 in-process reload --
 # OPENCLAW_NO_RESPAWN=1: SIGUSR1 수신 시 새 프로세스 spawn 없이 동일 PID에서 재시작
 # pkill은 cold restart를 유발하여 Config overwrite가 발생하므로 사용하지 않음
-OPENCLAW_PID=$(pgrep -u node -f "openclaw gateway" 2>/dev/null | head -1 || true)
+OPENCLAW_PID=$(pgrep -u node -f "openclaw-gateway" 2>/dev/null | head -1 || true)
 
 if [ -z "$OPENCLAW_PID" ]; then
-    log_error "No running gateway found (pgrep -u node -f 'openclaw gateway' returned empty)."
+    log_error "No running gateway found (pgrep -u node -f 'openclaw-gateway' returned empty)."
     log_error "Is entrypoint.sh running? Check: docker logs <container>"
     exit 1
 fi
@@ -61,5 +61,5 @@ if kill -0 "$OPENCLAW_PID" 2>/dev/null; then
     log_done "Reload complete. New configuration is active."
 else
     log_warn "Gateway PID ${OPENCLAW_PID} exited after SIGUSR1."
-    log_warn "entrypoint.sh should auto-restart it. Check: pgrep -f 'openclaw gateway'"
+    log_warn "entrypoint.sh should auto-restart it. Check: pgrep -f 'openclaw-gateway'"
 fi

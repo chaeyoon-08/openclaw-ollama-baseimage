@@ -17,7 +17,7 @@ log_ok()    { echo -e "\033[0;32m[  OK   ]\033[0m $1"; }
 log_error() { echo -e "\033[0;31m[ ERROR ]\033[0m $1"; }
 log_done()  { echo -e "\033[1;32m[ DONE  ]\033[0m $1"; }
 
-OPENCLAW_PID=$(pgrep -u node -f "openclaw gateway" 2>/dev/null | head -1 || true)
+OPENCLAW_PID=$(pgrep -u node -f "openclaw-gateway" 2>/dev/null | head -1 || true)
 
 if [ -z "$OPENCLAW_PID" ]; then
     log_error "No running gateway found. entrypoint.sh should restart it automatically."

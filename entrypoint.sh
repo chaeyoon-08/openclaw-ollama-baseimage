@@ -357,7 +357,7 @@ while true; do
     if ! kill -0 "$OPENCLAW_PID" 2>/dev/null; then
         # PID 사라짐 — 게이트웨이가 SIGUSR1 자체 재시작했는지 확인
         sleep 2
-        NEW_PID=$(pgrep -u node -f "openclaw gateway" 2>/dev/null | head -1 || true)
+        NEW_PID=$(pgrep -u node -f "openclaw-gateway" 2>/dev/null | head -1 || true)
         if [ -n "$NEW_PID" ]; then
             # 자체 재시작: 새 PID 추적만 갱신, 재시작 시도 금지 (포트 충돌 방지)
             log_info "Gateway self-restarted (new PID: ${NEW_PID}) — tracking updated"
