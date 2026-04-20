@@ -83,6 +83,7 @@ RUN sed -i \
         jq \
         zstd \
         gosu \
+        iproute2 \
         xvfb \
         x11vnc \
         openbox \
