@@ -216,7 +216,8 @@ jq -n \
                     else
                         { every: $heartbeat_every, model: $heartbeat_model, lightContext: true }
                     end
-                )
+                ),
+                thinkingDefault: "off"
             }
         },
         channels: {
@@ -243,7 +244,8 @@ jq -n \
                     args: [],
                     env: {
                         MCP_SHELL_DEFAULT_WORKDIR: "/home/node/.openclaw/workspace",
-                        MCP_SHELL_SECURITY_MODE: "permissive"
+                        MCP_SHELL_SECURITY_MODE: "permissive",
+                        MCP_SHELL_ELICITATION: "false"
                     }
                 }
             }
