@@ -151,11 +151,13 @@ RUN _PW=$(find /opt/uv/tools -name "playwright" -path "*/bin/playwright" 2>/dev/
 # === OpenClaw 설치 ===
 # Source: https://docs.openclaw.ai/install/docker
 # root로 시스템 전역 설치 → /usr/local/bin/openclaw (node 사용자도 gosu로 실행 가능)
-# 2026.4.11 고정: 2026.4.12에서 api:"ollama" provider 미등록 회귀 발생 (Issue #66202)
-# 2026.4.12 sidecar gate로 모델 리스팅 지연 문제도 동반
-# 업그레이드 전 반드시 릴리스 노트 및 Ollama provider 이슈 확인
+# 2026.4.15 (2026-04-16 stable): Ollama provider 회귀(#66202) 수정 완료
+#   - ollama/ prefix를 chat 요청 시 자동 strip (ollama/qwen3:14b → qwen3:14b)
+#   - embedded-run timeout → undici stream timeout 전달 (대형 모델 타임아웃 방지)
+#   - Ollama 스트리밍 응답에 usage 정보 포함
+# 2026.4.19-beta.x: subagent channel routing 수정 포함 (아직 stable 아님 — 대기)
 # Source: https://github.com/openclaw/openclaw/issues/66202
-RUN npm install -g openclaw@2026.4.11
+RUN npm install -g openclaw@2026.4.15
 
 # === shell MCP 서버 설치 ===
 # Source: https://github.com/mako10k/mcp-shell-server
