@@ -236,7 +236,7 @@ jq -n \
                 },
                 filesystem: {
                     command: "npx",
-                    args: ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
+                    args: ["-y", "@modelcontextprotocol/server-filesystem", "/workspace", "/home/node/.openclaw/workspace"]
                 },
                 shell: {
                     command: "npx",

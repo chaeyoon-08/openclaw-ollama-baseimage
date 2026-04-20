@@ -229,8 +229,14 @@ sessions_send(
 
 ## 오케스트레이션 현황 확인
 
-사용자가 서브 에이전트 이력, 위임 현황, 예약 작업(cron) 목록, 사용 모델 확인 등을 요청하면:
-`skills/agent-status/SKILL.md` 를 읽고 절차를 따른다.
+다음 중 하나에 해당하면 `check_agents` 스킬을 실행한다:
+- 사용자가 `/check_agents` 입력
+- "서브 에이전트 이력", "위임 현황", "예약 작업(cron) 목록", "사용 모델 확인" 등 요청
+
+스킬이 자동 주입되지 않는 경우 `shell_execute` 도구로 직접 읽는다:
+```bash
+cat /home/node/.openclaw/workspace/skills/agent-status/SKILL.md
+```
 
 ---
 

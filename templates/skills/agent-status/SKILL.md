@@ -1,3 +1,9 @@
+---
+name: check_agents
+description: 에이전트 현황 및 위임 이력 확인 (오케스트레이터/워커 모델별 작업 내역, cron 예약 작업)
+user-invocable: true
+---
+
 # agent-status 스킬 — 오케스트레이션 현황 종합 확인
 
 ## 발동 조건
