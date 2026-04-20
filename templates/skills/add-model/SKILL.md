@@ -34,6 +34,7 @@ add_model.json에 적용할 항목이 없습니다.
 /home/node/.openclaw/add_model.json 파일을 편집 후 /add_model을 다시 실행해 주세요.
 
 작성 예시:
-  Ollama 모델 추가  →  "ollama_add": ["gemma4:31b"]
-  API 키 추가       →  "api_keys": {"anthropic": "sk-ant-..."}
+  Ollama 모델 추가       →  "ollama_add": ["gemma4:31b"]
+  API 키 추가            →  "api_keys": {"anthropic": "sk-ant-..."}
+  오케스트레이터 교체    →  "orchestrator": "ollama/gemma4:31b"
 ```

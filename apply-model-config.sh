@@ -33,9 +33,11 @@ API_KEY_ENTRIES=$(jq -r \
      | select(.value != "" and .value != null)
      | "\(.key)/\(.value)"' \
     "$CONFIG" 2>/dev/null | grep -v '^$' || true)
+ORCHESTRATOR_NEW=$(jq -r '.orchestrator // ""' "$CONFIG" 2>/dev/null \
+    | grep -v '^$' || true)
 
 # ── 변경사항 없으면 조기 종료 ─────────────────────────────────────────────────
-if [ -z "$OLLAMA_MODELS" ] && [ -z "$API_KEY_ENTRIES" ]; then
+if [ -z "$OLLAMA_MODELS" ] && [ -z "$API_KEY_ENTRIES" ] && [ -z "$ORCHESTRATOR_NEW" ]; then
     log_info "적용할 항목 없음 — add_model.json을 편집 후 다시 실행하세요"
     log_info "  파일 위치: ${CONFIG}"
     exit 0
@@ -138,8 +140,59 @@ if [ -n "$API_KEY_ENTRIES" ]; then
     _env_update "MODEL_API_KEY" "$CURRENT_KEYS"
 fi
 
+# ── 오케스트레이터 모델 교체 ──────────────────────────────────────────────────
+if [ -n "$ORCHESTRATOR_NEW" ]; then
+    # provider/ 접두사 없으면 ollama/ 자동 보정
+    if [[ "$ORCHESTRATOR_NEW" != */* ]]; then
+        ORCHESTRATOR_NEW="ollama/${ORCHESTRATOR_NEW}"
+        log_info "provider 접두사 없음 — ollama/ 자동 보정: ${ORCHESTRATOR_NEW}"
+    fi
+
+    # ollama 모델이면 pull 시도
+    if [[ "$ORCHESTRATOR_NEW" == ollama/* ]]; then
+        _ORCH_NAME="${ORCHESTRATOR_NEW#ollama/}"
+        if ! curl -sf http://127.0.0.1:11434/ > /dev/null 2>&1; then
+            log_warn "Ollama 미실행 — ${_ORCH_NAME} pull 생략, ORCHESTRATOR_MODEL만 업데이트"
+        elif curl -sf http://127.0.0.1:11434/api/tags \
+             | jq -r '.models[].name' 2>/dev/null \
+             | grep -qxF "$_ORCH_NAME"; then
+            log_ok "모델 이미 존재 (pull 생략): ${_ORCH_NAME}"
+        else
+            log_doing "오케스트레이터 모델 다운로드 중: ${_ORCH_NAME}"
+            _LAST_BUCKET=-1
+            curl -sf -X POST http://127.0.0.1:11434/api/pull \
+                -d "{\"name\":\"${_ORCH_NAME}\"}" \
+            | while IFS= read -r line; do
+                STATUS=$(printf '%s' "$line" | jq -r '.status    // empty' 2>/dev/null)
+                TOTAL=$( printf '%s' "$line" | jq -r '.total     // 0'     2>/dev/null)
+                DONE=$(  printf '%s' "$line" | jq -r '.completed // 0'     2>/dev/null)
+                if [ "${TOTAL:-0}" -gt 0 ] 2>/dev/null; then
+                    PCT=$(( DONE * 100 / TOTAL ))
+                    BUCKET=$(( PCT / 10 * 10 ))
+                    [ "$BUCKET" -ne "$_LAST_BUCKET" ] \
+                        && _LAST_BUCKET=$BUCKET \
+                        && log_doing "  ${STATUS}: ${BUCKET}%"
+                elif [ -n "$STATUS" ]; then
+                    case "$STATUS" in
+                        "pulling manifest"|"verifying sha256 digest"|"writing manifest"|"success")
+                            log_doing "  ${STATUS}" ;;
+                    esac
+                fi
+            done
+            if ! curl -sf http://127.0.0.1:11434/api/tags \
+               | jq -r '.models[].name' 2>/dev/null \
+               | grep -qxF "$_ORCH_NAME"; then
+                log_warn "pull 실패: ${_ORCH_NAME} — ORCHESTRATOR_MODEL 업데이트는 진행"
+            fi
+        fi
+    fi
+
+    _env_update "ORCHESTRATOR_MODEL" "$ORCHESTRATOR_NEW"
+    log_ok "오케스트레이터 교체: ${ORCHESTRATOR_NEW}"
+fi
+
 # ── add_model.json 초기화 (구조 유지, 값만 비움) ────────────────────────────
-jq '.ollama_add = [] | .api_keys = {}' "$CONFIG" > /tmp/add_model_reset.json \
+jq '.ollama_add = [] | .api_keys = {} | .orchestrator = ""' "$CONFIG" > /tmp/add_model_reset.json \
     && mv /tmp/add_model_reset.json "$CONFIG"
 log_ok "add_model.json 초기화 (재사용 가능)"
 

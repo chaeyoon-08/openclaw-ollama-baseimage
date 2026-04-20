@@ -278,7 +278,10 @@ if [ ! -f "$ADD_MODEL_CONFIG" ]; then
 
   "_api_comment": "외부 provider API 키 (예: {\"anthropic\": \"sk-ant-...\", \"openai\": \"sk-...\"})",
   "_api_providers": "지원 provider: anthropic, openai, google, mistral, deepseek, groq",
-  "api_keys": {}
+  "api_keys": {},
+
+  "_orchestrator_comment": "오케스트레이터 모델 교체 (예: \"ollama/gemma4:31b\", \"anthropic/claude-sonnet-4-6\"). 빈 문자열이면 무시.",
+  "orchestrator": ""
 }
 ADDEOF
     log_ok "add_model.json 템플릿 생성: ${ADD_MODEL_CONFIG}"
