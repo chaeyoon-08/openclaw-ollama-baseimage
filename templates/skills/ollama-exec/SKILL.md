@@ -1,3 +1,9 @@
+---
+name: ollama_exec
+description: Ollama 명령 실행 (모델 목록 조회, 다운로드, 상태 확인)
+user-invocable: false
+---
+
 # 스킬: ollama-exec — Ollama 명령 실행
 
 ## 발동 조건

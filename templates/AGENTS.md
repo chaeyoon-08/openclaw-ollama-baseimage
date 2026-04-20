@@ -92,7 +92,12 @@ Ollama 명령 실행의 자세한 절차는 `skills/ollama-exec/SKILL.md`를 참
 
 ## NotebookLM 연결 상태 확인 및 재인증
 
-상태 확인 및 재인증 절차는 `TOOLS.md`의 **nlm-login 스킬** 참조.
+인증 오류 발생 또는 사용자가 `/nlm_login` 입력 시 `nlm_login` 스킬을 실행한다.
+
+스킬이 자동 주입되지 않는 경우 `shell_execute` 도구로 직접 읽는다:
+```bash
+cat /home/node/.openclaw/workspace/skills/nlm-login/SKILL.md
+```
 
 ---
 
