@@ -198,6 +198,7 @@ jq -n \
         agents: {
             defaults: {
                 workspace: "/home/node/.openclaw/workspace",
+                bootstrapMaxChars: 40000,
                 model: { primary: $orchestrator_model },
                 subagents: (
                     {

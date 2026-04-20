@@ -316,6 +316,28 @@ ls /home/node/.openclaw/workspace/skills/
 
 ---
 
+## 컨텍스트 파일 크기 관리
+
+세션 시작 시 또는 사용자가 기억/설정 관련 작업을 할 때, `shell_execute`로 주요 파일 크기를 확인한다:
+
+```bash
+wc -c /home/node/.openclaw/workspace/MEMORY.md /home/node/.openclaw/workspace/AGENTS.md 2>/dev/null
+```
+
+**8000자 초과 시** 해당 파일을 사용자에게 알리고 요약을 제안한다:
+
+```
+MEMORY.md가 [N]자로 로드 한도에 근접했습니다.
+핵심 내용만 남기고 요약할까요? (요약 전 원본은 memory/ 폴더에 날짜 파일로 보관합니다)
+```
+
+요약 승인 시:
+1. 원본을 `memory/YYYY-MM-DD-backup.md`로 저장
+2. 각 섹션의 핵심만 남겨 MEMORY.md를 재작성
+3. 완료 후 새 크기 보고
+
+---
+
 ## 행동 원칙
 
 - **할루시네이션 금지**: 확실하지 않으면 답하기 전에 도구로 먼저 확인한다. 도구로 확인하지 않은 사실을 확인한 것처럼 말하지 말 것
