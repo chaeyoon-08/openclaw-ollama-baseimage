@@ -262,3 +262,24 @@ fi
 export OPENCLAW_GATEWAY_TOKEN="$OPENCLAW_TOKEN"
 
 log_ok "Config generation complete (token: ${OPENCLAW_TOKEN:0:8}...)"
+
+# ── add_model.json 템플릿 생성 (최초 1회) ─────────────────────────────────────
+# 사용자가 모델/API 키를 추가할 때 이 파일을 편집 후 /add_model 명령으로 적용
+# apply-model-config.sh 가 적용 후 값을 자동 초기화하므로 파일은 유지됨
+ADD_MODEL_CONFIG="/home/node/.openclaw/add_model.json"
+if [ ! -f "$ADD_MODEL_CONFIG" ]; then
+    cat > "$ADD_MODEL_CONFIG" << 'ADDEOF'
+{
+  "_comment": "add_model.json — Ollama 모델 및 외부 API 키 추가 설정",
+  "_usage": "Telegram에서 /add_model 실행 시 적용됩니다. 적용 후 값은 자동 초기화됩니다.",
+
+  "_ollama_comment": "추가할 Ollama 모델 태그 목록 (예: [\"gemma4:31b\", \"qwen3:14b\"])",
+  "ollama_add": [],
+
+  "_api_comment": "외부 provider API 키 (예: {\"anthropic\": \"sk-ant-...\", \"openai\": \"sk-...\"})",
+  "_api_providers": "지원 provider: anthropic, openai, google, mistral, deepseek, groq",
+  "api_keys": {}
+}
+ADDEOF
+    log_ok "add_model.json 템플릿 생성: ${ADD_MODEL_CONFIG}"
+fi

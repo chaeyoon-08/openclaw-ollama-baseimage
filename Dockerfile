@@ -189,12 +189,14 @@ COPY reload.sh /usr/local/bin/reload.sh
 COPY restart.sh /usr/local/bin/restart.sh
 COPY nlm-reauth-start.sh /usr/local/bin/nlm-reauth-start.sh
 COPY nlm-reauth-finish.sh /usr/local/bin/nlm-reauth-finish.sh
+COPY apply-model-config.sh /usr/local/bin/apply-model-config.sh
 RUN chmod +x /entrypoint.sh \
     /usr/local/bin/generate-config.sh \
     /usr/local/bin/reload.sh \
     /usr/local/bin/restart.sh \
     /usr/local/bin/nlm-reauth-start.sh \
-    /usr/local/bin/nlm-reauth-finish.sh
+    /usr/local/bin/nlm-reauth-finish.sh \
+    /usr/local/bin/apply-model-config.sh
 
 EXPOSE 18789
 EXPOSE 6080
