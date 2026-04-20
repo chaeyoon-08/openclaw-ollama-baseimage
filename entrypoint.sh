@@ -216,48 +216,31 @@ log_start "Copying workspace templates"
 WORKSPACE="/home/node/.openclaw/workspace"
 mkdir -p "$WORKSPACE"
 
-# 시스템 지침 파일: 기본값은 재배포마다 이미지 버전으로 갱신
-# .custom 마커 파일이 있으면 사용자가 직접 편집한 버전을 유지 (덮어쓰기 건너뜀)
-# 마커 파일 생성: touch $WORKSPACE/.custom
-# 마커 파일 삭제 후 재시작: 이미지 기본값으로 복원
-_copy_system_template() {
+# workspace 파일: 없으면 기본값으로 생성, 있으면 보존 (Dropbox 수정 내용 재배포 후에도 유지)
+# 이미지 업데이트를 반영하려면 해당 파일을 직접 삭제 후 재배포
+_init_template() {
     local src="$1" dst="$2"
-    if [ -f "$WORKSPACE/.custom" ]; then
-        log_info "User .custom marker found — preserving: $(basename "$dst")"
+    if [ -f "$dst" ]; then
+        log_info "Preserved: $(basename "$dst")"
     else
         cp "$src" "$dst"
+        log_ok "Initialized: $(basename "$dst")"
     fi
 }
-_copy_system_template /templates/AGENTS.md      "$WORKSPACE/AGENTS.md"
-_copy_system_template /templates/CONSTRAINTS.md "$WORKSPACE/CONSTRAINTS.md"
-_copy_system_template /templates/TOOLS.md       "$WORKSPACE/TOOLS.md"
+_init_template /templates/AGENTS.md      "$WORKSPACE/AGENTS.md"
+_init_template /templates/CONSTRAINTS.md "$WORKSPACE/CONSTRAINTS.md"
+_init_template /templates/TOOLS.md       "$WORKSPACE/TOOLS.md"
+_init_template /templates/SOUL.md        "$WORKSPACE/SOUL.md"
+_init_template /templates/MEMORY.md      "$WORKSPACE/MEMORY.md"
+_init_template /templates/MODEL_GUIDE.md "$WORKSPACE/MODEL_GUIDE.md"
 
-# 스킬 디렉토리: 사용자가 생성/다운로드한 스킬을 보호하며 시스템 스킬은 추가만 함
-# cp -rn: 기존 파일을 절대 덮어쓰지 않음 → 사용자 커스텀 스킬 유지
+# 스킬 디렉토리: 사용자가 생성/다운로드한 스킬 보호, 시스템 스킬은 추가만 함
 mkdir -p "$WORKSPACE/skills"
 if [ -d "/templates/skills" ] && [ -n "$(find /templates/skills -name 'SKILL.md' 2>/dev/null | head -1)" ]; then
     cp -rn /templates/skills/. "$WORKSPACE/skills/"
     log_ok "System skills synced (user skills preserved)"
 else
     log_info "No system skills to sync — user skills directory ready"
-fi
-
-if [ -f "$WORKSPACE/.custom" ]; then
-    log_info "System templates preserved (user .custom active)"
-else
-    log_ok "System templates updated (AGENTS.md, CONSTRAINTS.md, TOOLS.md)"
-fi
-
-# 사용자 데이터 파일: MEMORY.md를 sentinel로 최초 실행 여부 판단
-# MEMORY.md, SOUL.md는 에이전트가 축적한 기억/성격 → 절대 덮어쓰지 않음
-# MODEL_GUIDE.md: 모델 특성 가이드 — 에이전트가 채워넣으므로 최초 1회만 복사
-if [ ! -f "$WORKSPACE/MEMORY.md" ]; then
-    log_ok "First run detected — initializing user data from templates"
-    cp /templates/SOUL.md        "$WORKSPACE/SOUL.md"
-    cp /templates/MEMORY.md      "$WORKSPACE/MEMORY.md"
-    cp /templates/MODEL_GUIDE.md "$WORKSPACE/MODEL_GUIDE.md"
-else
-    log_info "User data preserved (MEMORY.md, SOUL.md, MODEL_GUIDE.md)"
 fi
 
 chown -R node:node "$WORKSPACE"
