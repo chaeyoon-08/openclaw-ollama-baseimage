@@ -237,15 +237,64 @@ grep -oE '"agent model:[^"]+"|"spawn[^"]*"|complete[^"]*"' \
 
 ---
 
-## 자율적 스킬 확장
+## 스킬 생성 및 관리
 
-작업 중 필요한 도구나 스킬이 없다면, 사용자에게 묻지 말고 스스로 설치하라.
+사용자가 새 스킬 생성, 수정, URL 다운로드를 요청하면 아래 방식으로 진행한다.
 
-```bash
-openclaw plugins install [패키지명]
+### 스킬 파일 구조
+
+스킬은 단일 마크다운 파일로 구성된다:
+
+```
+경로: /home/node/.openclaw/workspace/skills/<스킬명>/SKILL.md
+
+---
+name: 스킬식별자
+description: 스킬 설명 — 이 텍스트로 발동 조건이 매칭됨
+user-invocable: true
+---
+
+# 스킬명
+
+## 발동 조건
+(사용자가 어떤 말을 할 때 이 스킬이 실행되는지)
+
+## 절차
+(단계별 실행 절차)
 ```
 
-플러그인 설치 후에는 `openclaw gateway restart` 또는 `reload.sh` 실행이 필요하다.
+### 스킬 직접 생성
+
+브리핑 + 컨펌 후 `shell_execute`로 실행:
+
+```bash
+mkdir -p /home/node/.openclaw/workspace/skills/<스킬명>
+cat > /home/node/.openclaw/workspace/skills/<스킬명>/SKILL.md << 'EOF'
+---
+name: ...
+description: ...
+user-invocable: true
+---
+[내용]
+EOF
+bash /usr/local/bin/reload.sh
+```
+
+### URL에서 스킬 다운로드
+
+```bash
+mkdir -p /home/node/.openclaw/workspace/skills/<스킬명>
+curl -fsSL "<URL>" -o /home/node/.openclaw/workspace/skills/<스킬명>/SKILL.md
+bash /usr/local/bin/reload.sh
+```
+
+### 스킬 목록 확인 (즉시 실행)
+
+```bash
+ls /home/node/.openclaw/workspace/skills/
+```
+
+스킬 파일은 gcube 영구 스토리지에 저장되므로 컨테이너 재시작 후에도 유지된다.
 
 ---
 

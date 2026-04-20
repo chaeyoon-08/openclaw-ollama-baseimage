@@ -232,11 +232,14 @@ _copy_system_template /templates/AGENTS.md      "$WORKSPACE/AGENTS.md"
 _copy_system_template /templates/CONSTRAINTS.md "$WORKSPACE/CONSTRAINTS.md"
 _copy_system_template /templates/TOOLS.md       "$WORKSPACE/TOOLS.md"
 
-# 스킬 디렉토리: 재배포마다 최신 이미지 버전으로 갱신 (.custom 적용 안 함)
-if [ -d "/templates/skills" ]; then
-    rm -rf "$WORKSPACE/skills"
-    cp -r /templates/skills "$WORKSPACE/skills"
-    log_ok "Skills directory updated (skills/)"
+# 스킬 디렉토리: 사용자가 생성/다운로드한 스킬을 보호하며 시스템 스킬은 추가만 함
+# cp -rn: 기존 파일을 절대 덮어쓰지 않음 → 사용자 커스텀 스킬 유지
+mkdir -p "$WORKSPACE/skills"
+if [ -d "/templates/skills" ] && [ -n "$(find /templates/skills -name 'SKILL.md' 2>/dev/null | head -1)" ]; then
+    cp -rn /templates/skills/. "$WORKSPACE/skills/"
+    log_ok "System skills synced (user skills preserved)"
+else
+    log_info "No system skills to sync — user skills directory ready"
 fi
 
 if [ -f "$WORKSPACE/.custom" ]; then
