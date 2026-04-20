@@ -235,13 +235,16 @@ jq -n \
                     env: { NOTEBOOKLM_MCP_CLI_PATH: $nlm_home }
                 },
                 filesystem: {
-                    command: "npx",
-                    args: ["-y", "@modelcontextprotocol/server-filesystem", "/workspace", "/home/node/.openclaw/workspace"]
+                    command: "mcp-server-filesystem",
+                    args: ["/workspace", "/home/node/.openclaw/workspace"]
                 },
                 shell: {
-                    command: "npx",
-                    args: ["-y", "@mako10k/mcp-shell-server"],
-                    env: { MCP_SHELL_DEFAULT_WORKDIR: "/home/node/.openclaw/workspace" }
+                    command: "mcp-shell-server",
+                    args: [],
+                    env: {
+                        MCP_SHELL_DEFAULT_WORKDIR: "/home/node/.openclaw/workspace",
+                        MCP_SHELL_SECURITY_MODE: "permissive"
+                    }
                 }
             }
         }
