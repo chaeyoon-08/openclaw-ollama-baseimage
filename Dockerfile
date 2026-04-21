@@ -176,7 +176,7 @@ RUN npm install -g openclaw@2026.4.15
 # → 이미지 빌드 시 전역 설치 후 직접 바이너리로 실행
 # Source (shell):      https://github.com/mako10k/mcp-shell-server
 # Source (filesystem): https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem
-RUN npm install -g @mako10k/mcp-shell-server \
+RUN npm install -g @mako10k/mcp-shell-server@2.6.2 \
     && npm install -g @modelcontextprotocol/server-filesystem
 
 # === 디렉터리 생성 및 권한 설정 ===

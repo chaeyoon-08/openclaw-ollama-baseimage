@@ -202,9 +202,9 @@ jq -n \
                 model: { primary: $orchestrator_model },
                 subagents: (
                     {
-                        maxSpawnDepth: 1,
-                        maxConcurrent: 4,
-                        runTimeoutSeconds: 300
+                        maxSpawnDepth: 2,
+                        maxConcurrent: 8,
+                        runTimeoutSeconds: 900
                     } + (
                         if $worker_model != "" then
                             { model: { primary: $worker_model } }
