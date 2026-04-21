@@ -159,10 +159,21 @@ if [ "$NEEDS_OLLAMA" = "true" ]; then
         log_ok "Model ready: ${_model}"
     }
 
+    # Modelfile override로 num_ctx 적용 (weights 재다운로드 없음)
+    # FROM <model> + PARAMETER num_ctx → 동일 이름으로 재등록
+    # Source: https://docs.ollama.com/modelfile
+    _apply_num_ctx() {
+        local _model="$1" _ctx="$2"
+        printf 'FROM %s\nPARAMETER num_ctx %s\n' "$_model" "$_ctx" > /tmp/_oc_modelfile
+        ollama create "$_model" -f /tmp/_oc_modelfile > /dev/null 2>&1
+        log_ok "num_ctx=${_ctx} applied: ${_model}"
+    }
+
     # Orchestrator 모델 pull (ollama 모델일 때만) — 동기
     if [ "$ORCH_PROVIDER" = "ollama" ]; then
         ORCH_MODEL_NAME=$(echo "$ORCHESTRATOR_MODEL" | cut -d'/' -f2-)
         _pull_model "$ORCH_MODEL_NAME"
+        _apply_num_ctx "$ORCH_MODEL_NAME" "${OLLAMA_NUM_CTX_ORCH:-32768}"
     fi
 
     # Worker 모델 pull (WORKER_MODELS 환경변수, 공백 구분)
@@ -175,6 +186,7 @@ if [ "$NEEDS_OLLAMA" = "true" ]; then
             _wm_name=$(echo "$_wm_entry" | cut -d'/' -f2-)
             if [ "$_wm_provider" = "ollama" ]; then
                 _pull_model "$_wm_name"
+                _apply_num_ctx "$_wm_name" "${OLLAMA_NUM_CTX_WORKER:-8192}"
             else
                 log_info "Worker model '${_wm_entry}' is not an Ollama model — skipping pull"
             fi

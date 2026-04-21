@@ -36,6 +36,17 @@ ENV OLLAMA_HOST=127.0.0.1:11434
 # Source: https://docs.openclaw.ai/providers/ollama
 ENV OLLAMA_API_KEY=ollama-local
 
+# Ollama VRAM 최적화 (multi-agent 동시 실행)
+# KV_CACHE_TYPE=q8_0: KV 캐시 8-bit 양자화 → VRAM 절반 절감 (품질 손실 거의 없음)
+# MAX_LOADED_MODELS=3: 오케스트레이터(1) + 워커(2) 동시 VRAM 상주 → 모델 swap 방지
+# NUM_CTX_ORCH/WORKER: 기본 200k → 설정값으로 제한 (entrypoint.sh _apply_num_ctx 적용)
+#   qwen3:32b 공식 학습 컨텍스트 = 32768, 워커 단일 태스크 = 8192로 충분
+# Source: https://docs.ollama.com/faq#how-can-i-set-the-context-window-size
+ENV OLLAMA_KV_CACHE_TYPE=q8_0
+ENV OLLAMA_MAX_LOADED_MODELS=3
+ENV OLLAMA_NUM_CTX_ORCH=32768
+ENV OLLAMA_NUM_CTX_WORKER=8192
+
 # 시간대 설정
 ENV TZ=Asia/Seoul
 
