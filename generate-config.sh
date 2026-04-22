@@ -5,7 +5,6 @@
 #   OpenClaw config:       https://docs.openclaw.ai/gateway/configuration-reference
 #   OpenClaw Telegram:     https://docs.openclaw.ai/channels/telegram
 #   OpenClaw providers:    https://docs.openclaw.ai/providers/ollama
-#   OpenClaw heartbeat:    https://docs.openclaw.ai/gateway/heartbeat
 #   OpenClaw cron:         https://docs.openclaw.ai/automation/cron-jobs
 #   OpenClaw subagents:    https://docs.openclaw.ai/tools/subagents
 #
@@ -15,9 +14,14 @@
 #   게이트웨이 라우팅 초기화 이후에 config overwrite가 발생하는 타이밍 문제로 신뢰 불가)
 #   Source: https://docs.openclaw.ai/providers/ollama
 #
-# 요금 방어 로직:
-#   ORCHESTRATOR가 유료 provider이면 heartbeat 강제 비활성화 (every: "0m")
-#   → heartbeat.model override는 반복 regression bug로 신뢰 불가 (#56788, #58137)
+# /models UI 버그 회피:
+#   Issue #65500 (v2026.4.11 regression): models.providers.ollama.models에 등록된 모델이
+#   /models UI에서 "model not allowed"로 차단됨. 회피책으로 agents.defaults.model.fallbacks에
+#   이중 등록. primary가 ollama일 때만 발동.
+#
+# Heartbeat:
+#   gcube 과금 환경 + 비동기 배치 워커 컨셉에 따라 항상 비활성화
+#   30분마다 대형 모델(10GB+) 로드는 자원 낭비
 
 set -e
 
@@ -42,9 +46,8 @@ fi
 [ -z "$TELEGRAM_ALLOWED_USER_IDS" ] && log_stop "TELEGRAM_ALLOWED_USER_IDS is required"
 [ -z "$ORCHESTRATOR_MODEL" ]        && log_stop "ORCHESTRATOR_MODEL is required"
 
-# ── Provider 및 모델 설정 ────────────────────────────────────────────────────
+# ── Provider 설정 ───────────────────────────────────────────────────────────
 ORCH_PROVIDER=$(echo "$ORCHESTRATOR_MODEL" | cut -d'/' -f1)
-NLM_HOME="${NOTEBOOKLM_MCP_CLI_PATH:-/mnt/notebooklm/OpenClaw_Auth}"
 
 # ── Gateway 토큰 ─────────────────────────────────────────────────────────────
 if [ -n "$OPENCLAW_GATEWAY_TOKEN" ]; then
@@ -101,26 +104,13 @@ if [ -n "$MODEL_API_KEY" ]; then
     done
 fi
 
-# ── Heartbeat 설정 결정 ──────────────────────────────────────────────────────
-# heartbeat.model override는 반복적인 known bug로 신뢰 불가
-# 관련 이슈: openclaw#56788 (v2026.3.28 regression), #58137 (live session switch 간섭)
-# 유료 provider 사용 시 heartbeat 강제 비활성화 → 요금 폭탄 방지
-if [ "$ORCH_PROVIDER" = "ollama" ]; then
-    HEARTBEAT_EVERY="30m"
-    HEARTBEAT_MODEL="$ORCHESTRATOR_MODEL"
-    log_info "Heartbeat enabled (every: 30m, model: ${HEARTBEAT_MODEL})"
-else
-    HEARTBEAT_EVERY="0m"
-    HEARTBEAT_MODEL=""
-    log_warn "Heartbeat disabled: ORCHESTRATOR_MODEL is a paid provider — preventing cost overrun"
-    log_warn "  (heartbeat.model override is unreliable: openclaw#56788, #58137)"
-fi
-
 # ── Worker model 설정 (subagents.model.primary) ──────────────────────────────
 # WORKER_MODELS 첫 번째 항목 → agents.defaults.subagents.model.primary
-# 두 번째 이후 항목: providers.ollama.models에 등록되어 /models에는 표시되나
-#   sessions_spawn.model 파라미터로 동적 지정은 현재 OpenClaw 버그로 미동작
-#   Source: https://github.com/openclaw/openclaw/issues/65519
+#
+# 현재 제약: sessions_spawn.model 파라미터 및 subagents.model.primary 설정은
+#   OpenClaw 알려진 버그(Issue #65519 외 다수)로 무시되며, 모든 서브에이전트는
+#   오케스트레이터의 primary 모델로 실행됨.
+#   설정은 유지하여 버그 수정 시 자동 활성화되도록 보존.
 _WORKER_MODEL_PRIMARY=""
 if [ -n "$WORKER_MODELS" ]; then
     read -ra _WM_LIST <<< "$WORKER_MODELS"
@@ -143,6 +133,22 @@ else
     log_warn "Ollama API unreachable — model list empty (external providers only)"
 fi
 
+# ── Fallbacks 이중 등록 (Issue #65500 회피) ──────────────────────────────────
+# primary가 ollama일 때만 발동. Ollama 모델 중 primary 제외한 나머지를
+# agents.defaults.model.fallbacks에 이중 등록하여 /models UI에 노출.
+# provider prefix "ollama/"를 붙여 full model ID 형태로 변환.
+_FALLBACKS_JSON="[]"
+if [ "$ORCH_PROVIDER" = "ollama" ]; then
+    _PRIMARY_MODEL_ID="${ORCHESTRATOR_MODEL#ollama/}"
+    _FALLBACKS_JSON=$(echo "$_OLLAMA_MODELS_JSON" \
+        | jq --arg primary "$_PRIMARY_MODEL_ID" \
+             '[.[] | select(.id != $primary) | "ollama/" + .id]')
+    _FALLBACK_COUNT=$(echo "$_FALLBACKS_JSON" | jq 'length')
+    log_ok "Fallbacks registered for /models UI visibility: ${_FALLBACK_COUNT} models"
+else
+    log_info "Primary is non-ollama — fallbacks skipped"
+fi
+
 # ── openclaw.json 생성 ──────────────────────────────────────────────────────
 log_doing "Generating openclaw.json"
 mkdir -p /home/node/.openclaw
@@ -150,18 +156,24 @@ mkdir -p /home/node/.openclaw
 OPENCLAW_VERSION=$(openclaw --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "unknown")
 OPENCLAW_NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
+# localModelLean 플래그: primary가 ollama일 때만 활성화 (v2026.4.15 신기능)
+# browser/cron/message 등 heavyweight 기본 도구 드롭하여 prompt 크기 축소
+_LOCAL_MODEL_LEAN="false"
+if [ "$ORCH_PROVIDER" = "ollama" ]; then
+    _LOCAL_MODEL_LEAN="true"
+fi
+
 jq -n \
     --arg     token              "$OPENCLAW_TOKEN" \
     --arg     bot_token          "$TELEGRAM_BOT_TOKEN" \
     --arg     orchestrator_model "$ORCHESTRATOR_MODEL" \
     --arg     worker_model       "$_WORKER_MODEL_PRIMARY" \
-    --arg     heartbeat_every    "$HEARTBEAT_EVERY" \
-    --arg     heartbeat_model    "$HEARTBEAT_MODEL" \
-    --arg     nlm_home           "$NLM_HOME" \
     --arg     oc_version         "$OPENCLAW_VERSION" \
     --arg     oc_now             "$OPENCLAW_NOW" \
     --argjson allow_from         "$ALLOW_FROM_JSON" \
     --argjson ollama_models      "$_OLLAMA_MODELS_JSON" \
+    --argjson fallbacks          "$_FALLBACKS_JSON" \
+    --argjson local_model_lean   "$_LOCAL_MODEL_LEAN" \
     '{
         meta: {
             lastTouchedVersion: $oc_version,
@@ -199,25 +211,25 @@ jq -n \
             defaults: {
                 workspace: "/home/node/.openclaw/workspace",
                 bootstrapMaxChars: 40000,
-                model: { primary: $orchestrator_model },
+                experimental: { localModelLean: $local_model_lean },
+                model: (
+                    { primary: $orchestrator_model } +
+                    (if ($fallbacks | length) > 0 then
+                        { fallbacks: $fallbacks }
+                    else {} end)
+                ),
                 subagents: (
                     {
-                        maxSpawnDepth: 2,
-                        maxConcurrent: 8,
-                        runTimeoutSeconds: 900
+                        maxSpawnDepth: 1,
+                        maxConcurrent: 2,
+                        runTimeoutSeconds: 300
                     } + (
                         if $worker_model != "" then
                             { model: { primary: $worker_model } }
                         else {} end
                     )
                 ),
-                heartbeat: (
-                    if $heartbeat_every == "0m" then
-                        { every: "0m" }
-                    else
-                        { every: $heartbeat_every, model: $heartbeat_model, lightContext: true }
-                    end
-                ),
+                heartbeat: { every: "0m" },
                 thinkingDefault: "off"
             }
         },
@@ -231,11 +243,6 @@ jq -n \
         },
         mcp: {
             servers: {
-                notebooklm: {
-                    command: "notebooklm-mcp",
-                    args: [],
-                    env: { NOTEBOOKLM_MCP_CLI_PATH: $nlm_home }
-                },
                 filesystem: {
                     command: "mcp-server-filesystem",
                     args: ["/workspace", "/home/node/.openclaw/workspace"]
@@ -265,27 +272,3 @@ fi
 export OPENCLAW_GATEWAY_TOKEN="$OPENCLAW_TOKEN"
 
 log_ok "Config generation complete (token: ${OPENCLAW_TOKEN:0:8}...)"
-
-# ── add_model.json 템플릿 생성 (최초 1회) ─────────────────────────────────────
-# 사용자가 모델/API 키를 추가할 때 이 파일을 편집 후 /add_model 명령으로 적용
-# apply-model-config.sh 가 적용 후 값을 자동 초기화하므로 파일은 유지됨
-ADD_MODEL_CONFIG="/home/node/.openclaw/add_model.json"
-if [ ! -f "$ADD_MODEL_CONFIG" ]; then
-    cat > "$ADD_MODEL_CONFIG" << 'ADDEOF'
-{
-  "_comment": "add_model.json — Ollama 모델 및 외부 API 키 추가 설정",
-  "_usage": "Telegram에서 /add_model 실행 시 적용됩니다. 적용 후 값은 자동 초기화됩니다.",
-
-  "_ollama_comment": "추가할 Ollama 모델 태그 목록 (예: [\"gemma4:31b\", \"qwen3:14b\"])",
-  "ollama_add": [],
-
-  "_api_comment": "외부 provider API 키 (예: {\"anthropic\": \"sk-ant-...\", \"openai\": \"sk-...\"})",
-  "_api_providers": "지원 provider: anthropic, openai, google, mistral, deepseek, groq",
-  "api_keys": {},
-
-  "_orchestrator_comment": "오케스트레이터 모델 교체 (예: \"ollama/gemma4:31b\", \"anthropic/claude-sonnet-4-6\"). 빈 문자열이면 무시.",
-  "orchestrator": ""
-}
-ADDEOF
-    log_ok "add_model.json 템플릿 생성: ${ADD_MODEL_CONFIG}"
-fi

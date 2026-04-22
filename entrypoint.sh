@@ -9,7 +9,7 @@
 #   gosu (user switch):      https://github.com/tianon/gosu
 #
 # 환경변수 필수: TELEGRAM_BOT_TOKEN, TELEGRAM_ALLOWED_USER_IDS, ORCHESTRATOR_MODEL
-# 환경변수 선택: MODEL_API_KEY, NOTEBOOKLM_MCP_CLI_PATH, OPENCLAW_GATEWAY_TOKEN, GITHUB_*
+# 환경변수 선택: MODEL_API_KEY, WORKER_MODELS, OPENCLAW_GATEWAY_TOKEN, GITHUB_*
 
 set -e
 
@@ -55,6 +55,9 @@ NEEDS_OLLAMA=false
 [ "$ORCH_PROVIDER" = "ollama" ] && NEEDS_OLLAMA=true
 
 # WORKER_MODELS 중 ollama/ 항목이 있어도 Ollama 필요
+# 주의: WORKER_MODELS는 subagents.model.primary로 등록되지만 현재 sessions_spawn.model 버그
+#      (Issue #65519 외 다수)로 실제론 무시되어 모든 서브에이전트가 ORCHESTRATOR_MODEL로 실행됨.
+#      설정 유지 이유: 향후 OpenClaw 버그 수정 시 자동 활성화되도록 경로 보존.
 if [ -n "$WORKER_MODELS" ]; then
     read -ra _WM_NEEDS_CHECK <<< "$WORKER_MODELS"
     for _wm_c in "${_WM_NEEDS_CHECK[@]}"; do
@@ -179,6 +182,10 @@ if [ "$NEEDS_OLLAMA" = "true" ]; then
     # Worker 모델 pull (WORKER_MODELS 환경변수, 공백 구분)
     # 포맷: "ollama/gemma4:31b ollama/gemma4:e2b"
     # 이미 볼륨에 있으면 "Model already present (skip)" — 재다운로드 없이 즉시 기동
+    #
+    # 주의: 현재 sessions_spawn.model 버그(Issue #65519 외)로 WORKER_MODELS 설정은
+    #      실제로는 무시되며 서브에이전트는 ORCHESTRATOR_MODEL로 실행됨.
+    #      pull/num_ctx 적용 로직은 유지 — OpenClaw 버그 수정 시 자동 활성화 경로 보존.
     if [ -n "$WORKER_MODELS" ]; then
         read -ra _WM_ENTRIES <<< "$WORKER_MODELS"
         for _wm_entry in "${_WM_ENTRIES[@]}"; do
@@ -186,6 +193,7 @@ if [ "$NEEDS_OLLAMA" = "true" ]; then
             _wm_name=$(echo "$_wm_entry" | cut -d'/' -f2-)
             if [ "$_wm_provider" = "ollama" ]; then
                 _pull_model "$_wm_name"
+                # num_ctx 기본값 8192: 버그 수정 후 워커 역할 활성화 시 사용될 값
                 _apply_num_ctx "$_wm_name" "${OLLAMA_NUM_CTX_WORKER:-8192}"
             else
                 log_info "Worker model '${_wm_entry}' is not an Ollama model — skipping pull"
@@ -206,23 +214,6 @@ log_start "Setting up node user environment"
 
 chown -R node:node /home/node/.openclaw
 
-# NOTEBOOKLM_MCP_CLI_PATH 마운트 경로 처리
-# nlm login CLI는 ~/.notebooklm-mcp-cli/ 에 고정 저장하므로
-# gcube 마운트 경로로 심링크 → 컨테이너 재시작 후에도 auth 유지
-# Source: https://github.com/jacob-bd/notebooklm-mcp-cli/blob/main/docs/AUTHENTICATION.md
-NLM_HOME="${NOTEBOOKLM_MCP_CLI_PATH:-/mnt/notebooklm/OpenClaw_Auth}"
-export NOTEBOOKLM_MCP_CLI_PATH="$NLM_HOME"
-
-if [ -d "$NLM_HOME" ]; then
-    chown -R node:node "$NLM_HOME" 2>/dev/null || true
-    rm -rf /home/node/.notebooklm-mcp-cli
-    ln -s "$NLM_HOME" /home/node/.notebooklm-mcp-cli
-    log_ok "NOTEBOOKLM_MCP_CLI_PATH: ${NLM_HOME} (symlinked)"
-else
-    log_warn "NOTEBOOKLM_MCP_CLI_PATH not mounted: ${NLM_HOME}"
-    log_warn "  nlm login will use container-local storage (not persistent)"
-fi
-
 # ── 6. workspace 템플릿 복사 ────────────────────────────────────────────────
 log_start "Copying workspace templates"
 WORKSPACE="/home/node/.openclaw/workspace"
@@ -241,10 +232,8 @@ _init_template() {
 }
 _init_template /templates/AGENTS.md      "$WORKSPACE/AGENTS.md"
 _init_template /templates/CONSTRAINTS.md "$WORKSPACE/CONSTRAINTS.md"
-_init_template /templates/TOOLS.md       "$WORKSPACE/TOOLS.md"
 _init_template /templates/SOUL.md        "$WORKSPACE/SOUL.md"
 _init_template /templates/MEMORY.md      "$WORKSPACE/MEMORY.md"
-_init_template /templates/MODEL_GUIDE.md "$WORKSPACE/MODEL_GUIDE.md"
 
 # 스킬 디렉토리: 사용자가 생성/다운로드한 스킬 보호, 시스템 스킬은 추가만 함
 mkdir -p "$WORKSPACE/skills"
@@ -272,7 +261,9 @@ TELEGRAM_ALLOWED_USER_IDS="${TELEGRAM_ALLOWED_USER_IDS}"
 ORCHESTRATOR_MODEL="${ORCHESTRATOR_MODEL}"
 
 # 선택: 워커 모델 목록 (공백 구분, provider/model:tag 포맷)
-# 시작 시 자동 pull, subagents.model.primary로 등록됨 (첫 번째 항목)
+# 시작 시 자동 pull. subagents.model.primary로 등록됨 (첫 번째 항목).
+# 주의: 현재 sessions_spawn.model 버그로 실제론 ORCHESTRATOR_MODEL이 사용됨.
+#      버그 수정 후 자동 활성화를 위해 설정은 유지.
 # 예: WORKER_MODELS="ollama/gemma4:31b ollama/gemma4:e2b"
 WORKER_MODELS="${WORKER_MODELS:-}"
 
@@ -281,9 +272,6 @@ MODEL_API_KEY="${MODEL_API_KEY:-}"
 
 # 선택: Gateway 토큰 (미설정 시 자동 생성, 설정 시 재시작 후에도 유지)
 OPENCLAW_GATEWAY_TOKEN="${OPENCLAW_GATEWAY_TOKEN:-}"
-
-# 선택: NotebookLM 인증 경로 (Dropbox 마운트 경로)
-NOTEBOOKLM_MCP_CLI_PATH="${NLM_HOME}"
 
 # 선택: GitHub
 GITHUB_USERNAME="${GITHUB_USERNAME:-}"
