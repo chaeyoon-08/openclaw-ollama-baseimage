@@ -240,23 +240,6 @@ jq -n \
                 dmPolicy:  "allowlist",
                 allowFrom: $allow_from
             }
-        },
-        mcp: {
-            servers: {
-                filesystem: {
-                    command: "mcp-server-filesystem",
-                    args: ["/workspace", "/home/node/.openclaw/workspace"]
-                },
-                shell: {
-                    command: "mcp-shell-server",
-                    args: [],
-                    env: {
-                        MCP_SHELL_DEFAULT_WORKDIR: "/home/node/.openclaw/workspace",
-                        MCP_SHELL_SECURITY_MODE: "permissive",
-                        MCP_SHELL_ELICITATION: "false"
-                    }
-                }
-            }
         }
     }' > /home/node/.openclaw/openclaw.json
 

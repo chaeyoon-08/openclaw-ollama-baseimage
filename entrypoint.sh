@@ -230,10 +230,11 @@ _init_template() {
         log_ok "Initialized: $(basename "$dst")"
     fi
 }
-_init_template /templates/AGENTS.md      "$WORKSPACE/AGENTS.md"
-_init_template /templates/CONSTRAINTS.md "$WORKSPACE/CONSTRAINTS.md"
-_init_template /templates/SOUL.md        "$WORKSPACE/SOUL.md"
-_init_template /templates/MEMORY.md      "$WORKSPACE/MEMORY.md"
+# 프로젝트 고유 템플릿 2개만 복사.
+# 나머지 표준 파일(IDENTITY/USER/TOOLS/HEARTBEAT)은 OpenClaw가 자동 생성함.
+# MEMORY.md는 optional (사용자가 대화로 채움).
+_init_template /templates/AGENTS.md "$WORKSPACE/AGENTS.md"
+_init_template /templates/SOUL.md   "$WORKSPACE/SOUL.md"
 
 # 스킬 디렉토리: 사용자가 생성/다운로드한 스킬 보호, 시스템 스킬은 추가만 함
 mkdir -p "$WORKSPACE/skills"

@@ -109,15 +109,6 @@ RUN curl -fsSL https://ollama.com/download/ollama-linux-amd64.tar.zst \
 # Source: https://github.com/openclaw/openclaw/issues/66202
 RUN npm install -g openclaw@2026.4.15
 
-# === MCP 서버 사전 설치 ===
-# npx -y 런타임 다운로드 방식은 gcube 컨테이너 네트워크 제한으로 실패 가능
-# → 이미지 빌드 시 전역 설치 후 직접 바이너리로 실행
-# shell MCP 2.6.2 고정: 2.7.x의 sampling/createMessage 버그 회피
-# Source (shell):      https://github.com/mako10k/mcp-shell-server
-# Source (filesystem): https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem
-RUN npm install -g @mako10k/mcp-shell-server@2.6.2 \
-    && npm install -g @modelcontextprotocol/server-filesystem
-
 # === 디렉터리 생성 및 권한 설정 ===
 # /home/node/.openclaw  : OpenClaw 설정·세션·메모리 (gcube OpenClaw_Data 마운트 대상)
 # /root/.ollama         : Ollama 모델 저장소 (gcube Ollama_Models 마운트 대상)
