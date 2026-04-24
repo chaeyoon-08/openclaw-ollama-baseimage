@@ -123,12 +123,26 @@ fi
 # ── Ollama 모델 목록 조회 ────────────────────────────────────────────────────
 # entrypoint.sh가 Ollama 기동 완료를 보장한 뒤 generate-config.sh를 호출함
 # → curl 실패 시 빈 배열로 fallback (Ollama가 없는 순수 외부 provider 환경 대비)
+#
+# contextWindow/maxTokens 주입:
+#   OpenClaw는 기동 시 GGUF 메타데이터의 context_length를 읽어 num_ctx로 그대로 전달함.
+#   이 값이 모델마다 100K~200K 수준이라 VRAM·속도에 악영향 → openclaw.json에 명시적으로
+#   contextWindow/maxTokens를 박아 오버라이드함. Source: OpenClaw providers/ollama 문서.
+#   qwen3 계열은 max 40K 제약이 있어 32K로 clamp (64K 요청 시 Ollama가 자동 clamp하지만
+#   명시적으로 32K 박아 로그 혼동 방지). 그 외 모델은 DEFAULT_CONTEXT_WINDOW(env) 사용.
 _OLLAMA_MODELS_JSON="[]"
 if _TAGS=$(curl -sf http://127.0.0.1:11434/api/tags 2>/dev/null); then
     _OLLAMA_MODELS_JSON=$(echo "$_TAGS" \
-        | jq '[.models[].name | {id: ., name: .}]' 2>/dev/null || echo "[]")
+        | jq --argjson default_ctx "${DEFAULT_CONTEXT_WINDOW:-65536}" \
+             --argjson default_max "${DEFAULT_MAX_TOKENS:-8192}" \
+             '[.models[].name | {
+                 id: .,
+                 name: .,
+                 contextWindow: (if startswith("qwen3:") then 32768 else $default_ctx end),
+                 maxTokens: $default_max
+             }]' 2>/dev/null || echo "[]")
     _OLLAMA_MODEL_COUNT=$(echo "$_OLLAMA_MODELS_JSON" | jq 'length')
-    log_ok "Ollama models queried: ${_OLLAMA_MODEL_COUNT} found"
+    log_ok "Ollama models queried: ${_OLLAMA_MODEL_COUNT} found (contextWindow injected)"
 else
     log_warn "Ollama API unreachable — model list empty (external providers only)"
 fi

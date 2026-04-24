@@ -218,6 +218,7 @@ chown -R node:node /home/node/.openclaw
 log_start "Copying workspace templates"
 WORKSPACE="/home/node/.openclaw/workspace"
 mkdir -p "$WORKSPACE"
+mkdir -p "$WORKSPACE/results"   # AGENTS.md 결과 전달 규칙 — 긴 결과 파일 저장 폴더
 
 # workspace 파일: 없으면 기본값으로 생성, 있으면 보존 (Dropbox 수정 내용 재배포 후에도 유지)
 # 이미지 업데이트를 반영하려면 해당 파일을 직접 삭제 후 재배포
