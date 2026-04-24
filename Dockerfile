@@ -37,12 +37,20 @@ ENV OLLAMA_API_KEY=ollama-local
 # MAX_LOADED_MODELS=2: primary 모델(1) + 전환 버퍼(1) 동시 VRAM 상주
 #   사용자가 /models로 모델 전환 시 이전 모델이 즉시 unload되지 않도록 여유 확보
 #   현재 구조는 single primary 운영이 기본이나, 전환 UX 위해 2 유지
-# NUM_CTX_ORCH: primary 모델 컨텍스트. Ollama 기본 200k → 32k로 제한
+# NUM_CTX_ORCH: primary 모델 컨텍스트. Ollama 기본 200k → 65k로 제한
 #   (entrypoint.sh _apply_num_ctx에서 Modelfile PARAMETER num_ctx로 적용)
+#   OpenClaw 공식 권장: agent/web search/coding tools는 64K 이상 필요
+#   32K는 AGENTS.md + MEMORY.md + 대화 히스토리 누적 시 부족
+# CONTEXT_LENGTH=65536: Ollama 자체가 모델 로드할 때 사용하는 기본 context
+#   OLLAMA_NUM_CTX_ORCH는 OpenClaw의 num_ctx 파라미터만 조절하고,
+#   Ollama가 llama runner 시작할 때의 KvSize는 OLLAMA_CONTEXT_LENGTH를 참조
+#   두 값 모두 65536으로 일치시켜야 실제로 64K context가 적용됨
 # Source: https://docs.ollama.com/faq#how-can-i-set-the-context-window-size
+# Source: https://docs.openclaw.ai/providers/ollama (64K minimum)
 ENV OLLAMA_KV_CACHE_TYPE=q8_0
 ENV OLLAMA_MAX_LOADED_MODELS=2
-ENV OLLAMA_NUM_CTX_ORCH=32768
+ENV OLLAMA_NUM_CTX_ORCH=65536
+ENV OLLAMA_CONTEXT_LENGTH=65536
 
 # 시간대 설정
 ENV TZ=Asia/Seoul
