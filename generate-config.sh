@@ -224,7 +224,6 @@ jq -n \
         agents: {
             defaults: {
                 workspace: "/home/node/.openclaw/workspace",
-                bootstrapMaxChars: 40000,
                 experimental: { localModelLean: $local_model_lean },
                 model: (
                     { primary: $orchestrator_model } +
