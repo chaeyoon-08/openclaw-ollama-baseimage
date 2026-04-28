@@ -4,12 +4,20 @@
 # References:
 #   Ollama serve:            https://docs.ollama.com/linux
 #   OpenClaw config:         https://docs.openclaw.ai/gateway/configuration-reference
+#   OpenClaw env vars:       https://docs.openclaw.ai/help/environment
 #   OpenClaw Telegram:       https://docs.openclaw.ai/channels/telegram
 #   OpenClaw gateway CLI:    https://docs.openclaw.ai/cli/gateway
 #   gosu (user switch):      https://github.com/tianon/gosu
 #
 # 환경변수 필수: TELEGRAM_BOT_TOKEN, TELEGRAM_ALLOWED_USER_IDS, ORCHESTRATOR_MODEL
-# 환경변수 선택: MODEL_API_KEY, WORKER_MODELS, OPENCLAW_GATEWAY_TOKEN, GITHUB_*
+# 환경변수 선택: MODEL_API_KEY, WORKER_MODELS, OPENCLAW_GATEWAY_TOKEN
+#
+# 보안 정책:
+#   시크릿(토큰·API 키)은 process env에만 두고 디스크 파일에 평문으로 저장하지 않음.
+#   - .env 덤프에서 시크릿 항목 제외 (비시크릿만 기재)
+#   - openclaw.json에는 ${VAR} placeholder 기재 → OpenClaw gateway가 부팅 시 process env에서 보간
+#   - GitHub 자동 등록은 git 도구가 ${VAR} 보간을 지원하지 않아 본 이미지에서 제외됨
+#   Source: https://docs.openclaw.ai/help/environment
 
 set -e
 
@@ -65,39 +73,47 @@ if [ -n "$WORKER_MODELS" ]; then
     done
 fi
 
-# ── 2. GitHub 설정 (선택) ────────────────────────────────────────────────────
-# GITHUB_USERNAME + GITHUB_EMAIL 이 모두 있을 때만 실행
-if [ -n "$GITHUB_USERNAME" ] && [ -n "$GITHUB_EMAIL" ]; then
-    log_start "Configuring GitHub"
+# ── 2. 시크릿 환경변수 처리 (디스크 평문 저장 우회) ─────────────────────────
+# 시크릿은 process env에만 두고 디스크에 평문으로 박지 않는 정책.
+# generate-config.sh는 openclaw.json에 ${VAR} placeholder만 기재하며,
+# OpenClaw gateway가 부팅 시 process env에서 메모리로 보간한다.
+# Source: https://docs.openclaw.ai/help/environment
+log_start "Preparing secret env vars (disk-plaintext bypass)"
 
-    git config --global user.name  "$GITHUB_USERNAME"
-    git config --global user.email "$GITHUB_EMAIL"
-    log_ok "git user: ${GITHUB_USERNAME} <${GITHUB_EMAIL}>"
-
-    if [ -n "$GITHUB_TOKEN" ]; then
-        git config --global credential.helper store
-        echo "https://${GITHUB_USERNAME}:${GITHUB_TOKEN}@github.com" \
-            > /root/.git-credentials
-        chmod 600 /root/.git-credentials
-        log_ok "GitHub token stored"
-    else
-        log_info "GITHUB_TOKEN not set — git push will require manual auth"
-    fi
-
-    if [ -n "$GITHUB_REPO_URL" ]; then
-        log_doing "Cloning repo: ${GITHUB_REPO_URL}"
-        if [ -d "/workspace/.git" ]; then
-            log_info "/workspace already has a git repo — skipping clone"
-        else
-            git clone "$GITHUB_REPO_URL" /workspace
-            log_ok "Cloned into /workspace"
-        fi
-    else
-        log_info "GITHUB_REPO_URL not set — skipping clone"
-    fi
+# OPENCLAW_GATEWAY_TOKEN: 미설정 시 자동 생성
+# 주의: 자동 생성 토큰은 컨테이너 재시작 시 변경되어 gcube pod 재사용 시
+#      이전 gateway 좀비 상태 유발 가능. 운영 환경에서는 gcube workload env로
+#      고정 값 주입 권장.
+if [ -z "$OPENCLAW_GATEWAY_TOKEN" ]; then
+    export OPENCLAW_GATEWAY_TOKEN=$(head -c 32 /dev/urandom | base64 | tr -d '/+=' | head -c 32)
+    log_warn "OPENCLAW_GATEWAY_TOKEN auto-generated — recommend setting via gcube workload env for stability"
 else
-    log_info "GITHUB_USERNAME / GITHUB_EMAIL not set — skipping GitHub setup"
+    log_ok "OPENCLAW_GATEWAY_TOKEN: provided via env"
 fi
+
+# MODEL_API_KEY: "provider/key provider/key ..." 형식을 provider별 env로 split·export
+# openclaw.json에는 ${PROVIDER_API_KEY} 형태 placeholder만 박힘.
+if [ -n "$MODEL_API_KEY" ]; then
+    read -ra _MAK_ENTRIES <<< "$MODEL_API_KEY"
+    for _entry in "${_MAK_ENTRIES[@]}"; do
+        _provider=$(echo "$_entry" | cut -d'/' -f1)
+        _key=$(echo "$_entry" | cut -d'/' -f2-)
+        case "$_provider" in
+            anthropic) export ANTHROPIC_API_KEY="$_key";  log_ok "ANTHROPIC_API_KEY: split from MODEL_API_KEY" ;;
+            openai)    export OPENAI_API_KEY="$_key";     log_ok "OPENAI_API_KEY: split from MODEL_API_KEY" ;;
+            google)    export GOOGLE_API_KEY="$_key";     log_ok "GOOGLE_API_KEY: split from MODEL_API_KEY" ;;
+            mistral)   export MISTRAL_API_KEY="$_key";    log_ok "MISTRAL_API_KEY: split from MODEL_API_KEY" ;;
+            deepseek)  export DEEPSEEK_API_KEY="$_key";   log_ok "DEEPSEEK_API_KEY: split from MODEL_API_KEY" ;;
+            groq)      export GROQ_API_KEY="$_key";       log_ok "GROQ_API_KEY: split from MODEL_API_KEY" ;;
+            *)         log_warn "Unknown provider in MODEL_API_KEY: ${_provider} — skipped" ;;
+        esac
+    done
+    # MODEL_API_KEY 자체는 더 이상 필요 없음 (split 완료)
+    unset MODEL_API_KEY
+fi
+
+# TELEGRAM_BOT_TOKEN은 이미 process env에 존재 (gcube가 주입).
+# 추가 처리 없음 — generate-config.sh가 placeholder로 박고, gateway가 보간.
 
 # ── 3. Ollama 서비스 시작 (필요 시만) ───────────────────────────────────────
 if [ "$NEEDS_OLLAMA" = "true" ]; then
@@ -250,52 +266,44 @@ fi
 chown -R node:node "$WORKSPACE"
 log_ok "Workspace ready"
 
-# ── 7. 환경변수 → .env 덤프 ──────────────────────────────────────────────────
-# 사용자가 나중에 .env를 직접 수정 + reload.sh로 설정 갱신 가능
-log_doing "Dumping environment variables to .env"
+# ── 7. 비시크릿 환경변수 → .env 덤프 ────────────────────────────────────────
+# 사용자가 .env를 직접 수정 + reload.sh로 설정 갱신 가능.
+# 보안 정책에 따라 시크릿(TELEGRAM_BOT_TOKEN, MODEL_API_KEY, OPENCLAW_GATEWAY_TOKEN)은
+# 이 파일에 기재하지 않음. 시크릿 변경은 gcube workload env 재설정 + 컨테이너 재시작으로 수행.
+log_doing "Dumping non-secret environment variables to .env"
 ENV_FILE="/home/node/.openclaw/.env"
 cat > "$ENV_FILE" << ENVEOF
-# openclaw .env -- 환경변수 설정 파일
+# openclaw .env — 비시크릿 환경변수 설정 파일
 # 수정 후 reload.sh 실행으로 반영: bash /usr/local/bin/reload.sh
 #
-# 필수
-TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN}"
+# 보안 정책: 시크릿(TELEGRAM_BOT_TOKEN, MODEL_API_KEY, OPENCLAW_GATEWAY_TOKEN)은
+# 이 파일에 저장하지 않습니다. gcube 워크로드 환경변수로만 주입하며, openclaw.json에는
+# \${VAR} placeholder로 보간됩니다. 시크릿 변경은 컨테이너 재시작이 필요합니다.
+
+# Telegram allowlist (공백 구분 user IDs)
 TELEGRAM_ALLOWED_USER_IDS="${TELEGRAM_ALLOWED_USER_IDS}"
+
+# Orchestrator 모델 (provider/model-name 형식)
 ORCHESTRATOR_MODEL="${ORCHESTRATOR_MODEL}"
 
-# 선택: 워커 모델 목록 (공백 구분, provider/model:tag 포맷)
-# 시작 시 자동 pull. subagents.model.primary로 등록됨 (첫 번째 항목).
+# Worker 모델 목록 (공백 구분, provider/model:tag 포맷)
 # 주의: 현재 sessions_spawn.model 버그로 실제론 ORCHESTRATOR_MODEL이 사용됨.
 #      버그 수정 후 자동 활성화를 위해 설정은 유지.
-# 예: WORKER_MODELS="ollama/gemma4:31b ollama/gemma4:e2b"
 WORKER_MODELS="${WORKER_MODELS:-}"
-
-# 선택: 외부 provider API 키 (provider/key 형식, 공백으로 여러 개)
-MODEL_API_KEY="${MODEL_API_KEY:-}"
-
-# 선택: Gateway 토큰 (미설정 시 자동 생성, 설정 시 재시작 후에도 유지)
-OPENCLAW_GATEWAY_TOKEN="${OPENCLAW_GATEWAY_TOKEN:-}"
-
-# 선택: GitHub
-GITHUB_USERNAME="${GITHUB_USERNAME:-}"
-GITHUB_EMAIL="${GITHUB_EMAIL:-}"
-GITHUB_TOKEN="${GITHUB_TOKEN:-}"
-GITHUB_REPO_URL="${GITHUB_REPO_URL:-}"
 ENVEOF
 chmod 600 "$ENV_FILE"
 chown node:node "$ENV_FILE"
-log_ok ".env written: ${ENV_FILE}"
+log_ok ".env written: ${ENV_FILE} (non-secret only)"
 
 # ── 8. openclaw.json 생성 (generate-config.sh 호출) ─────────────────────────
 # openclaw.json 항상 재생성: anomaly 상태 제거 → full scope fresh pairing 보장
-# token은 generate-config.sh가 기존 파일에서 먼저 읽어 유지함
+# 시크릿은 ${VAR} placeholder로만 기재되며 OpenClaw gateway가 process env에서 보간.
 # devices/ 클리어: operator.read로 고정된 pairing 레코드 제거 → fresh pairing 강제
 CONFIG_FILE="/home/node/.openclaw/openclaw.json"
 rm -rf /home/node/.openclaw/devices 2>/dev/null || true
 rm -f  /home/node/.openclaw/openclaw.json.bak 2>/dev/null || true
 bash /usr/local/bin/generate-config.sh
 chown node:node "$CONFIG_FILE"
-OPENCLAW_TOKEN=$(jq -r '.gateway.auth.token' "$CONFIG_FILE")
 
 # ── 9. Stale session lock 파일 정리 ─────────────────────────────────────────
 # 컨테이너 재시작 시 이전 인스턴스 PID는 무효화됨 → .lock 파일이 잔류하면
@@ -312,10 +320,10 @@ fi
 
 # ── 10. OpenClaw gateway 시작 (node 사용자로 실행) ───────────────────────────
 # Source: https://docs.openclaw.ai/cli/gateway
-# gosu로 root → node 전환하여 보안 실행
+# gosu로 root → node 전환하여 보안 실행. 환경변수는 gosu가 자식 프로세스에 그대로 전달.
+# OpenClaw gateway는 부팅 시 process env에서 ${VAR} placeholder를 메모리로 보간.
 log_start "Starting OpenClaw gateway"
 
-export OPENCLAW_GATEWAY_TOKEN="${OPENCLAW_TOKEN}"
 # OPENCLAW_NO_RESPAWN=1: SIGUSR1 수신 시 새 프로세스 spawn 대신 in-process 재시작
 # 커스텀 supervisor(entrypoint while 루프) 환경에서 이중 인스턴스 → EADDRINUSE 방지
 # Source: https://github.com/openclaw/openclaw/issues/65668
@@ -329,7 +337,7 @@ log_done "All services started"
 echo ""
 echo "  Orchestrator  : ${ORCHESTRATOR_MODEL}"
 [ -n "$WORKER_MODELS" ] && echo "  Worker Models : ${WORKER_MODELS}"
-echo "  Gateway token : ${OPENCLAW_TOKEN}"
+echo "  Gateway token : ${OPENCLAW_GATEWAY_TOKEN:0:8}... (masked)"
 echo ""
 
 # ── 컨테이너 유지 ────────────────────────────────────────────────────────────

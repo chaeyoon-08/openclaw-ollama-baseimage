@@ -3,10 +3,19 @@
 #
 # References:
 #   OpenClaw config:       https://docs.openclaw.ai/gateway/configuration-reference
+#   OpenClaw env vars:     https://docs.openclaw.ai/help/environment
 #   OpenClaw Telegram:     https://docs.openclaw.ai/channels/telegram
 #   OpenClaw providers:    https://docs.openclaw.ai/providers/ollama
 #   OpenClaw cron:         https://docs.openclaw.ai/automation/cron-jobs
 #   OpenClaw subagents:    https://docs.openclaw.ai/tools/subagents
+#
+# 보안 정책 — 시크릿 placeholder:
+#   시크릿(gateway.auth.token, channels.telegram.botToken, models.providers.*.apiKey)은
+#   실제 값 대신 ${VAR} 형태 placeholder를 박아 디스크 평문 저장을 우회.
+#   OpenClaw gateway가 부팅 시 process env에서 메모리로 보간 (${VAR} string substitution).
+#   entrypoint.sh가 시크릿 env(OPENCLAW_GATEWAY_TOKEN, TELEGRAM_BOT_TOKEN, *_API_KEY)를
+#   사전에 process env로 export하므로 본 스크립트는 placeholder 박는 역할만 수행.
+#   Source: https://docs.openclaw.ai/help/environment
 #
 # Ollama 모델 등록:
 #   generate-config.sh 실행 시점에 Ollama가 이미 기동 중 → /api/tags 쿼리로 모델 목록 확보
@@ -32,7 +41,8 @@ log_info()   { echo -e "\033[0;37m[ INFO  ]\033[0m $1"; }
 log_warn()   { echo -e "\033[1;33m[ WARN  ]\033[0m $1"; }
 log_stop()   { echo -e "\033[1;31m[ STOP  ]\033[0m $1"; exit 1; }
 
-# ── .env 파일이 있으면 source ─────────────────────────────────────────────────
+# ── .env 파일이 있으면 source (비시크릿만 포함됨) ────────────────────────────
+# 시크릿은 process env에 이미 존재하며, .env에 없으므로 덮어써지지 않음.
 ENV_FILE="/home/node/.openclaw/.env"
 if [ -f "$ENV_FILE" ]; then
     set -a
@@ -42,24 +52,13 @@ if [ -f "$ENV_FILE" ]; then
 fi
 
 # ── 필수 환경변수 검증 ──────────────────────────────────────────────────────
-[ -z "$TELEGRAM_BOT_TOKEN" ]        && log_stop "TELEGRAM_BOT_TOKEN is required"
+[ -z "$TELEGRAM_BOT_TOKEN" ]        && log_stop "TELEGRAM_BOT_TOKEN is required (process env)"
 [ -z "$TELEGRAM_ALLOWED_USER_IDS" ] && log_stop "TELEGRAM_ALLOWED_USER_IDS is required"
 [ -z "$ORCHESTRATOR_MODEL" ]        && log_stop "ORCHESTRATOR_MODEL is required"
+[ -z "$OPENCLAW_GATEWAY_TOKEN" ]    && log_stop "OPENCLAW_GATEWAY_TOKEN is required (entrypoint.sh should set this)"
 
 # ── Provider 설정 ───────────────────────────────────────────────────────────
 ORCH_PROVIDER=$(echo "$ORCHESTRATOR_MODEL" | cut -d'/' -f1)
-
-# ── Gateway 토큰 ─────────────────────────────────────────────────────────────
-if [ -n "$OPENCLAW_GATEWAY_TOKEN" ]; then
-    OPENCLAW_TOKEN="$OPENCLAW_GATEWAY_TOKEN"
-else
-    EXISTING_TOKEN=$(jq -r '.gateway.auth.token // empty' /home/node/.openclaw/openclaw.json 2>/dev/null || true)
-    if [ -n "$EXISTING_TOKEN" ]; then
-        OPENCLAW_TOKEN="$EXISTING_TOKEN"
-    else
-        OPENCLAW_TOKEN=$(head -c 32 /dev/urandom | base64 | tr -d '/+=' | head -c 32)
-    fi
-fi
 
 # ── allowFrom JSON 배열 생성 ─────────────────────────────────────────────────
 # Source: https://docs.openclaw.ai/channels/telegram
@@ -71,38 +70,36 @@ ALLOW_FROM_JSON=$(
     | jq -s .
 )
 
-# ── 외부 provider 수집 (MODEL_API_KEY=provider/key,... 형식) ─────────────────
+# ── 외부 provider 수집 (process env 기반) ──────────────────────────────────
+# entrypoint.sh가 MODEL_API_KEY를 split해서 ANTHROPIC_API_KEY, OPENAI_API_KEY 등으로
+# 이미 export 한 상태. 본 스크립트는 어떤 provider env가 존재하는지 확인하고
+# 해당 provider 블록을 ${VAR_NAME} placeholder로 등록.
 _PROVIDERS_JSON='{}'
 
+# _try_register_provider — provider 블록 등록 (시크릿은 placeholder)
+# 인자: $1=provider id, $2=env var 이름 (값 X), $3=api type, $4=base URL
 _try_register_provider() {
-    local _id="$1" _key="$2" _api="$3" _url="$4"
-    if [ -n "$_key" ]; then
+    local _id="$1" _envvar="$2" _api="$3" _url="$4"
+    # process env에 해당 변수가 실제로 존재하는지 확인 (indirect expansion: ${!_envvar})
+    if [ -n "${!_envvar}" ]; then
+        local _placeholder="\${${_envvar}}"
         _PROVIDERS_JSON=$(printf '%s' "$_PROVIDERS_JSON" | jq \
-            --arg id  "$_id" \
-            --arg api "$_api" \
-            --arg key "$_key" \
-            --arg url "$_url" \
-            '. + {($id): {api: $api, apiKey: $key, baseUrl: $url, models: []}}')
-        log_ok "Provider registered: $_id"
+            --arg id          "$_id" \
+            --arg api         "$_api" \
+            --arg placeholder "$_placeholder" \
+            --arg url         "$_url" \
+            '. + {($id): {api: $api, apiKey: $placeholder, baseUrl: $url, models: []}}')
+        log_ok "Provider registered: $_id (apiKey via \${${_envvar}})"
     fi
 }
 
-if [ -n "$MODEL_API_KEY" ]; then
-    read -ra _KEY_ENTRIES <<< "$MODEL_API_KEY"
-    for _entry in "${_KEY_ENTRIES[@]}"; do
-        _provider=$(echo "$_entry" | cut -d'/' -f1)
-        _key=$(echo "$_entry" | cut -d'/' -f2-)
-        case "$_provider" in
-            anthropic) _try_register_provider "anthropic" "$_key" "anthropic-messages"   "https://api.anthropic.com" ;;
-            openai)    _try_register_provider "openai"    "$_key" "openai-responses"     "https://api.openai.com" ;;
-            google)    _try_register_provider "google"    "$_key" "google-generative-ai" "https://generativelanguage.googleapis.com" ;;
-            mistral)   _try_register_provider "mistral"   "$_key" "openai-completions"   "https://api.mistral.ai" ;;
-            deepseek)  _try_register_provider "deepseek"  "$_key" "openai-completions"   "https://api.deepseek.com" ;;
-            groq)      _try_register_provider "groq"      "$_key" "openai-completions"   "https://api.groq.com/openai" ;;
-            *) log_warn "Unknown provider in MODEL_API_KEY: ${_provider} — skipped" ;;
-        esac
-    done
-fi
+# 등록 가능한 provider 전수 점검 (process env에 키가 있는 것만 등록됨)
+_try_register_provider "anthropic" "ANTHROPIC_API_KEY" "anthropic-messages"   "https://api.anthropic.com"
+_try_register_provider "openai"    "OPENAI_API_KEY"    "openai-responses"     "https://api.openai.com"
+_try_register_provider "google"    "GOOGLE_API_KEY"    "google-generative-ai" "https://generativelanguage.googleapis.com"
+_try_register_provider "mistral"   "MISTRAL_API_KEY"   "openai-completions"   "https://api.mistral.ai"
+_try_register_provider "deepseek"  "DEEPSEEK_API_KEY"  "openai-completions"   "https://api.deepseek.com"
+_try_register_provider "groq"      "GROQ_API_KEY"      "openai-completions"   "https://api.groq.com/openai"
 
 # ── Worker model 설정 (subagents.model.primary) ──────────────────────────────
 # WORKER_MODELS 첫 번째 항목 → agents.defaults.subagents.model.primary
@@ -164,7 +161,7 @@ else
 fi
 
 # ── openclaw.json 생성 ──────────────────────────────────────────────────────
-log_doing "Generating openclaw.json"
+log_doing "Generating openclaw.json (secrets as \${VAR} placeholders)"
 mkdir -p /home/node/.openclaw
 
 OPENCLAW_VERSION=$(openclaw --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "unknown")
@@ -177,9 +174,9 @@ if [ "$ORCH_PROVIDER" = "ollama" ]; then
     _LOCAL_MODEL_LEAN="true"
 fi
 
+# 시크릿 placeholder는 single quote 안의 jq script에 직접 박아 bash expansion 방지.
+# token / botToken 필드는 string literal로 ${VAR} 형태 보존 → openclaw.json에 그대로 기록.
 jq -n \
-    --arg     token              "$OPENCLAW_TOKEN" \
-    --arg     bot_token          "$TELEGRAM_BOT_TOKEN" \
     --arg     orchestrator_model "$ORCHESTRATOR_MODEL" \
     --arg     worker_model       "$_WORKER_MODEL_PRIMARY" \
     --arg     oc_version         "$OPENCLAW_VERSION" \
@@ -197,7 +194,7 @@ jq -n \
             mode: "local",
             port: 18789,
             bind: "lan",
-            auth: { mode: "token", token: $token },
+            auth: { mode: "token", token: "${OPENCLAW_GATEWAY_TOKEN}" },
             controlUi: { allowedOrigins: ["*"], dangerouslyDisableDeviceAuth: true }
         },
         models: {
@@ -249,7 +246,7 @@ jq -n \
         channels: {
             telegram: {
                 enabled:   true,
-                botToken:  $bot_token,
+                botToken:  "${TELEGRAM_BOT_TOKEN}",
                 dmPolicy:  "allowlist",
                 allowFrom: $allow_from
             }
@@ -261,10 +258,7 @@ if [ "$_PROVIDERS_JSON" != '{}' ]; then
     jq --argjson p "$_PROVIDERS_JSON" '.models.providers += $p' \
         /home/node/.openclaw/openclaw.json > /tmp/oc_merged.json \
         && mv /tmp/oc_merged.json /home/node/.openclaw/openclaw.json
-    log_ok "External providers added"
+    log_ok "External providers added (apiKey as \${VAR} placeholders)"
 fi
 
-# ── 토큰 환경변수 export ─────────────────────────────────────────────────────
-export OPENCLAW_GATEWAY_TOKEN="$OPENCLAW_TOKEN"
-
-log_ok "Config generation complete (token: ${OPENCLAW_TOKEN:0:8}...)"
+log_ok "Config generation complete (all secrets as placeholders)"

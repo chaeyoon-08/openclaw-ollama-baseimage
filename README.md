@@ -211,13 +211,41 @@ RTX 5090 32GB 기준 실측치:
 
 `OLLAMA_KV_CACHE_TYPE=q8_0`으로 KV 캐시 8-bit 양자화 적용 (이미지 내부 기본값).
 
-> 외부 API 모델(Claude, GPT 등)은 외부 서버에서 추론하므로 VRAM을 사용하지 않습니다. 하이브리드 구성 시 로컬 GPU 자원을 오케 또는 큰 컨텍스트 작업에 집중 배분 가능.
+> 외부 API 모델(Claude, GPT 등)은 외부 서버에서 추론하므로 VRAM을 사용하지 않음음. 하이브리드 구성 시 로컬 GPU 자원을 오케 또는 큰 컨텍스트 작업에 집중 배분 가능.
 
-## 관련 문서
+## 유의 사항
 
-- `templates/AGENTS.md` — 오케 에이전트 행동 규칙 (모델 라우팅, 결과 전달, 컨펌 게이트 등 상세)
-- `TUTORIAL.md` — gcube 환경 활용 가이드 (작성 예정)
-- `.env.example` — 환경변수 설정 예시
+### 시크릿 처리 정책
+
+시크릿은 컨테이너 디스크에 평문으로 저장하지 않음. gcube 워크로드 환경변수로 주입되며, `openclaw.json`에는 `${VAR}` placeholder만 기재. OpenClaw gateway가 부팅 시 process env에서 메모리로 보간.
+
+| 시크릿 | 디스크 저장 형태 |
+|--------|------------------|
+| `TELEGRAM_BOT_TOKEN` | `${TELEGRAM_BOT_TOKEN}` |
+| `OPENCLAW_GATEWAY_TOKEN` | `${OPENCLAW_GATEWAY_TOKEN}` |
+| `MODEL_API_KEY` (provider별 분리) | `${ANTHROPIC_API_KEY}` 등 |
+
+> `.env`는 비시크릿(`TELEGRAM_ALLOWED_USER_IDS`, `ORCHESTRATOR_MODEL`, `WORKER_MODELS`)만 포함. 시크릿 변경은 컨테이너 재시작 필요.
+
+### `${VAR}` 보간의 잔여 위험
+
+OpenClaw가 설정 파일을 자체 재기록하는 경로에서 `${VAR}` 참조가 평문으로 변환되는 알려진 동작 존재. 컨테이너 재시작 시 `openclaw.json`이 처음부터 재생성되어 placeholder로 reset되므로 영향 윈도우는 한 세션 내로 제한.
+
+| Issue | 트리거 |
+|-------|--------|
+| [#4654](https://github.com/openclaw/openclaw/issues/4654) | `openclaw doctor --fix` (사용 자제) |
+| [#9813](https://github.com/openclaw/openclaw/issues/9813) | `meta.lastTouchedAt` 자동 업데이트 |
+| [#10020](https://github.com/openclaw/openclaw/issues/10020) | `config.patch` RPC, 에이전트 추가 등 |
+
+> 런타임 메모리 차원의 노출은 본 우회의 대상이 아니며, 컨테이너 격리·비root 실행(`gosu node`)으로 일정 방어선 구축축.
+
+### GitHub 자동 등록 제외
+
+`git`이 환경변수 보간을 지원하지 않아 토큰을 평문 저장 없이 인증할 수 없으므로, 컨테이너 내부 GitHub 자동 등록(`GITHUB_TOKEN` 기반 clone)은 제외. git 작업은 컨테이너 외부(WSL 로컬 등)에서 수행 권장.
+
+### `.env.example` 부재
+
+평문 `.env` 작성을 시사하는 형태가 본 정책과 모순되어 제공하지 않습니다. 환경변수 정의는 [환경변수](#환경변수) 섹션 참고.
 
 ## 버전 히스토리
 
